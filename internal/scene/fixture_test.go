@@ -16,6 +16,14 @@ var (
 // fixture builds a view with the user's real device inventory, a weather
 // device, one alert and two events — every widget gets exercised.
 func fixture(t *testing.T, lang string) View {
+	// Device names come from the clouds, so a home is named in its owner's
+	// language; the English frames get English names to read as a whole.
+	name := func(ru, en string) string {
+		if lang == "en" {
+			return en
+		}
+		return ru
+	}
 	t.Helper()
 	bundle, err := i18n.Load(lang)
 	if err != nil {
@@ -23,16 +31,16 @@ func fixture(t *testing.T, lang string) View {
 	}
 	devices := []model.Device{
 		{ID: "weather:home", Name: "Home", Kind: model.KindVirtual},
-		{ID: "tuya:office", Name: "кабинет", Room: "", Kind: model.KindClimateSensor},
-		{ID: "tuya:bedroom", Name: "спальня", Kind: model.KindClimateSensor},
-		{ID: "tuya:hall", Name: "Зал", Kind: model.KindClimateSensor},
-		{ID: "tuya:kitchen", Name: "Кухня", Kind: model.KindClimateSensor},
+		{ID: "tuya:office", Name: name("кабинет", "Office"), Room: "", Kind: model.KindClimateSensor},
+		{ID: "tuya:bedroom", Name: name("спальня", "Bedroom"), Kind: model.KindClimateSensor},
+		{ID: "tuya:hall", Name: name("Зал", "Living room"), Kind: model.KindClimateSensor},
+		{ID: "tuya:kitchen", Name: name("Кухня", "Kitchen"), Kind: model.KindClimateSensor},
 		{ID: "tuya:thermostat", Name: "Thermostat", Kind: model.KindThermostat},
-		{ID: "tuya:aquarium", Name: "Розетка Аквариум", Kind: model.KindOutlet},
-		{ID: "aqara:lock", Name: "Дверной замок (U200)", Room: "Прихожая", Kind: model.KindLock},
-		{ID: "aqara:washer", Name: "Розетка стиралка", Room: "Прихожая", Kind: model.KindOutlet},
-		{ID: "aqara:leak1", Name: "Протечка стиралки", Room: "Прихожая", Kind: model.KindLeakSensor},
-		{ID: "aqara:leak2", Name: "Протечка ванная", Room: "Ванная", Kind: model.KindLeakSensor},
+		{ID: "tuya:aquarium", Name: name("Розетка Аквариум", "Aquarium outlet"), Kind: model.KindOutlet},
+		{ID: "aqara:lock", Name: name("Дверной замок (U200)", "Door lock (U200)"), Room: name("Прихожая", "Hallway"), Kind: model.KindLock},
+		{ID: "aqara:washer", Name: name("Розетка стиралка", "Washer outlet"), Room: name("Прихожая", "Hallway"), Kind: model.KindOutlet},
+		{ID: "aqara:leak1", Name: name("Протечка стиралки", "Washer leak"), Room: name("Прихожая", "Hallway"), Kind: model.KindLeakSensor},
+		{ID: "aqara:leak2", Name: name("Протечка ванная", "Bathroom leak"), Room: name("Ванная", "Bathroom"), Kind: model.KindLeakSensor},
 	}
 	num := model.NumberValue
 	readings := map[model.DeviceID]map[model.Metric]model.Value{
@@ -78,7 +86,7 @@ func fixture(t *testing.T, lang string) View {
 			"tuya:hall":    {model.Temperature: -0.5},
 			"tuya:kitchen": {model.Temperature: 0.1},
 		},
-		Alerts: []Alert{{Severity: SeverityUrgent, Message: "Протечка стиралки", Since: epoch.Add(-3 * time.Minute)}},
+		Alerts: []Alert{{Severity: SeverityUrgent, Message: name("Протечка стиралки", "Washer leak"), Since: epoch.Add(-3 * time.Minute)}},
 		Events: []model.Event{
 			{Device: "aqara:lock", Kind: model.EventUnlocked, At: epoch.Add(-3 * time.Minute)},
 			{Device: "tuya:kitchen", Kind: model.EventOffline, At: epoch.Add(-25 * time.Minute)},

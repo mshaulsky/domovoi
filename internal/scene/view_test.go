@@ -149,7 +149,7 @@ func TestViewEventSubject(t *testing.T) {
 		event model.Event
 		want  string
 	}{
-		{name: "known device", event: model.Event{Device: "aqara:lock"}, want: "Дверной замок (U200)"},
+		{name: "known device", event: model.Event{Device: "aqara:lock"}, want: "Door lock (U200)"},
 		{name: "detail", event: model.Event{Kind: model.EventAlertRaised, Detail: "leak"}, want: "leak"},
 		{name: "unknown device", event: model.Event{Device: "x:y"}, want: "x:y"},
 	}

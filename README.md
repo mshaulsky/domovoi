@@ -10,7 +10,7 @@ the house onto a 7.5" three-colour e-ink panel. Named after the domovoi, the
 Slavic house spirit that keeps an eye on the household and grumbles when
 something is wrong.
 
-![The overview scene: outside weather, room tiles, the hallway strip and an alert](internal/scene/testdata/full_ru.png)
+![The overview scene: outside weather, room tiles, the hallway strip and an alert](internal/scene/testdata/full_en.png)
 
 ## What it shows
 
