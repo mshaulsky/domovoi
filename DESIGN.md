@@ -4,7 +4,7 @@ A single Go binary for a Raspberry Pi Zero 2W that polls smart-home sources,
 keeps history in SQLite, evaluates alerts and paints ambient dashboards onto
 one or more displays. Pure Go, no cgo, cross-compiled from the PC.
 
-Named after the domovoi, the Slavic house spirit that quietly keeps watch over
+Named after the domovoi, the house spirit that quietly keeps watch over
 the household and grumbles when something is wrong.
 
 Module `github.com/mshaulsky/domovoi`, binary `domovoi`.

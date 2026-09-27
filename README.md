@@ -7,8 +7,8 @@
 A quiet dashboard for the home: one Go binary on a Raspberry Pi Zero 2W
 polls the smart-home clouds, remembers what it saw, and paints the state of
 the house onto a 7.5" three-colour e-ink panel. Named after the domovoi, the
-Slavic house spirit that keeps an eye on the household and grumbles when
-something is wrong.
+house spirit that keeps an eye on the household and grumbles when something
+is wrong.
 
 ![The overview scene: outside weather, room tiles, the hallway strip and an alert](internal/scene/testdata/full_en.png)
 
@@ -29,7 +29,9 @@ The overview scene fits a whole flat onto one 800 × 480 frame:
 - **The alert banner and the event line** — a leak, an open door, a sensor
   gone quiet, with the time it happened.
 
-Every word on the screen comes from a catalogue, in Russian or English.
+Everything the dashboard says in its own voice comes from a localisation
+catalogue and follows the configured `language`; devices and rooms appear
+under the names they carry in your account, whatever language those are in.
 
 ## Where it stands
 
