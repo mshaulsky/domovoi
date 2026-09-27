@@ -3,6 +3,8 @@
 #   sudo useradd --system --home /var/lib/domovoi --groups spi,gpio domovoi
 #   sudo install -m 600 /dev/stdin /etc/credstore/TUYA_ACCESS_ID  <<< "$TUYA_ACCESS_ID"
 #   sudo install -m 600 /dev/stdin /etc/credstore/TUYA_ACCESS_KEY <<< "$TUYA_ACCESS_KEY"
+#   sudo install -m 600 /dev/stdin /etc/credstore/AQARA_USERNAME     <<< "$AQARA_USERNAME"
+#   sudo install -m 600 /dev/stdin /etc/credstore/AQARA_PASSWORD_MD5 <<< "$AQARA_PASSWORD_MD5"
 #   (the file names match the ${NAME} placeholders, so -check below finds them too)
 #   sudo install -m 755 domovoi-arm64 /usr/local/bin/domovoi
 #   sudo install -m 644 domovoi.yaml /etc/domovoi.yaml
@@ -27,6 +29,8 @@ RestartSec=10
 WatchdogSec=120
 LoadCredential=TUYA_ACCESS_ID:/etc/credstore/TUYA_ACCESS_ID
 LoadCredential=TUYA_ACCESS_KEY:/etc/credstore/TUYA_ACCESS_KEY
+LoadCredential=AQARA_USERNAME:/etc/credstore/AQARA_USERNAME
+LoadCredential=AQARA_PASSWORD_MD5:/etc/credstore/AQARA_PASSWORD_MD5
 StateDirectory=domovoi
 NoNewPrivileges=true
 ProtectSystem=strict

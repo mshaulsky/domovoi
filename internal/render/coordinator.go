@@ -23,6 +23,7 @@ type Coordinator struct {
 	scenes  []Scene
 	state   StateReader
 	locale  Locale
+	history History // nil: no storage
 	log     *slog.Logger
 	metrics Metrics
 
@@ -52,9 +53,20 @@ type FixedLocale struct {
 	location *time.Location
 }
 
-// DefaultStartGrace is how long a coordinator waits at start for the sources
-// to deliver before it shows the starting frame.
-const DefaultStartGrace = 30 * time.Second
+// Timing constants.
+const (
+	// DefaultStartGrace is how long a coordinator waits at start for the
+	// sources to deliver before it shows the starting frame.
+	DefaultStartGrace = 30 * time.Second
+	// trendWindow is how far back a tile's trend arrow looks.
+	trendWindow = time.Hour
+	// eventsWindow is how far back the footer's events reach.
+	eventsWindow = 24 * time.Hour
+	// eventsLimit is how many events a view carries.
+	eventsLimit = 5
+	// historyTimeout bounds the history queries of one frame.
+	historyTimeout = 5 * time.Second
+)
 
 // NewFixedLocale returns a Locale for one bundle and zone; a nil zone means
 // UTC.
@@ -67,7 +79,7 @@ func NewFixedLocale(b *i18n.Bundle, loc *time.Location) FixedLocale {
 
 // New validates the config and prepares the coordinator; nothing is drawn
 // until Run or Render.
-func New(cfg Config, disp Display, scenes []Scene, st StateReader, locale Locale, log *slog.Logger, m Metrics) (*Coordinator, error) {
+func New(cfg Config, disp Display, scenes []Scene, st StateReader, locale Locale, history History, log *slog.Logger, m Metrics) (*Coordinator, error) {
 	if cfg.Name == "" {
 		return nil, errors.New("render: display name is required")
 	}
@@ -92,6 +104,7 @@ func New(cfg Config, disp Display, scenes []Scene, st StateReader, locale Locale
 		scenes:  scenes,
 		state:   st,
 		locale:  locale,
+		history: history,
 		log:     log.With("component", "render", "display", cfg.Name),
 		metrics: m,
 		wake:    make(chan struct{}, 1),
@@ -151,7 +164,7 @@ func (c *Coordinator) Render(ctx context.Context) error {
 	c.mu.Unlock()
 
 	surface := c.disp.Surface()
-	img, err := sc.Render(surface, c.view(now))
+	img, err := sc.Render(surface, c.view(ctx, now))
 	if err != nil {
 		return fmt.Errorf("render %s/%s: %w", c.cfg.Name, sc.Name(), err)
 	}
@@ -211,8 +224,9 @@ func (c *Coordinator) forget() {
 	c.mu.Unlock()
 }
 
-// view assembles the scene's input from a snapshot.
-func (c *Coordinator) view(now time.Time) scene.View {
+// view assembles the scene's input from a snapshot and, when there is a
+// store, from history.
+func (c *Coordinator) view(ctx context.Context, now time.Time) scene.View {
 	sn := c.state.Snapshot(now)
 	v := scene.View{
 		Now:      now,
@@ -222,6 +236,7 @@ func (c *Coordinator) view(now time.Time) scene.View {
 		Readings: sn.Readings,
 		Stale:    make(map[model.DeviceID]bool, len(sn.Devices)),
 		Seen:     make(map[model.DeviceID]time.Time, len(sn.Devices)),
+		Restored: sn.Restored,
 	}
 	for _, d := range sn.Devices {
 		v.Stale[d.ID] = sn.Stale(d.ID)
@@ -239,7 +254,44 @@ func (c *Coordinator) view(now time.Time) scene.View {
 		}
 		v.Sources = append(v.Sources, scene.SourceStatus{Name: name, LastOK: h.LastOK, Stale: sn.SourceStale(name)})
 	}
+	c.enrich(ctx, &v)
 	return v
+}
+
+// enrich adds what history knows: today's temperature extremes and the
+// hour's trend per device, the latest events. A failing query costs one
+// warning and that item, never the frame.
+func (c *Coordinator) enrich(ctx context.Context, v *scene.View) {
+	if c.history == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, historyTimeout)
+	defer cancel()
+	local := v.Now.In(v.Location)
+	midnight := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, v.Location)
+	v.Extremes = map[model.DeviceID]map[model.Metric]scene.Extremes{}
+	v.Trends = map[model.DeviceID]map[model.Metric]float64{}
+	for _, d := range v.Devices {
+		if !v.Has(d.ID, model.Temperature) {
+			continue
+		}
+		if lo, hi, ok, err := c.history.Extremes(ctx, d.ID, model.Temperature, midnight); err != nil {
+			c.log.Warn("extremes query failed", "device", d.ID, "err", err)
+		} else if ok {
+			v.Extremes[d.ID] = map[model.Metric]scene.Extremes{model.Temperature: {Min: lo, Max: hi}}
+		}
+		if delta, ok, err := c.history.Trend(ctx, d.ID, model.Temperature, v.Now.Add(-trendWindow)); err != nil {
+			c.log.Warn("trend query failed", "device", d.ID, "err", err)
+		} else if ok {
+			v.Trends[d.ID] = map[model.Metric]float64{model.Temperature: delta}
+		}
+	}
+	events, err := c.history.Events(ctx, v.Now.Add(-eventsWindow), eventsLimit)
+	if err != nil {
+		c.log.Warn("events query failed", "err", err)
+		return
+	}
+	v.Events = events
 }
 
 // untilNextTick returns the wait to the next tick boundary on the wall

@@ -2,6 +2,7 @@ scene:
   updated: "updated {{.Time}}"
   no_data_since: "no data since {{.Time}}"
   never: "no data yet"
+  restored: "restored…"
   starting: "Starting up, polling sources…"
   no_devices: "No devices yet"
   outside: "Outside"

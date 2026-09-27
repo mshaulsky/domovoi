@@ -296,3 +296,29 @@ func TestMapLookup(t *testing.T) {
 		t.Error("B should be unknown")
 	}
 }
+
+func TestParseStorage(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		want    StorageSection
+		wantErr string
+	}{
+		{name: "defaults", yaml: minimal, want: StorageSection{Path: DefaultStoragePath, Retention: DefaultRetention, Heartbeat: DefaultHeartbeat}},
+		{name: "explicit", yaml: minimal + "storage:\n  path: /var/lib/domovoi/domovoi.db\n  retention: 720h\n  heartbeat: 30m\n",
+			want: StorageSection{Path: "/var/lib/domovoi/domovoi.db", Retention: 720 * time.Hour, Heartbeat: 30 * time.Minute}},
+		{name: "negative retention", yaml: minimal + "storage:\n  retention: -1h\n", wantErr: "retention and heartbeat must be positive"},
+		{name: "unknown key", yaml: minimal + "storage:\n  pathh: x\n", wantErr: "pathh"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := Parse([]byte(tt.yaml), MapLookup(nil))
+			if checkErr(t, err, tt.wantErr) {
+				return
+			}
+			if cfg.Storage != tt.want {
+				t.Errorf("Storage = %+v, want %+v", cfg.Storage, tt.want)
+			}
+		})
+	}
+}

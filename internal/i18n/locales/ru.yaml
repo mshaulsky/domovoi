@@ -2,6 +2,7 @@ scene:
   updated: "обновлено {{.Time}}"
   no_data_since: "нет данных с {{.Time}}"
   never: "данных ещё нет"
+  restored: "восстановлено…"
   starting: "Запускаюсь, опрашиваю источники…"
   no_devices: "Устройств пока нет"
   outside: "Улица"

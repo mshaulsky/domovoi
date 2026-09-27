@@ -1,6 +1,7 @@
 package container
 
 import (
+	"database/sql"
 	"log/slog"
 
 	"github.com/mshaulsky/domovoi/internal/config"
@@ -10,6 +11,7 @@ import (
 	"github.com/mshaulsky/domovoi/internal/scene"
 	"github.com/mshaulsky/domovoi/internal/source"
 	"github.com/mshaulsky/domovoi/internal/state"
+	"github.com/mshaulsky/domovoi/internal/storage/store"
 )
 
 // Container is the manifest of singletons and the registries of kinds.
@@ -19,12 +21,20 @@ type Container struct {
 	Config  Lazy[*config.Config]
 	Logger  Lazy[*slog.Logger]
 	Metrics Lazy[*metrics.Registry]
+	DB      Lazy[*sql.DB]      // provided by the storage module
+	Store   Lazy[*store.Store] // the unit of work over the repositories
 	State   Lazy[*state.State]
 	Core    Lazy[*core.Core]
 
 	Sources  Registry[SourceConstructor]
 	Displays Registry[DisplayConstructor]
 	Scenes   Registry[scene.Scene]
+
+	// Check is set for -check: build everything, but touch nothing outside
+	// the process. A module whose singleton or instances would create a
+	// file or open hardware validates instead — the storage module checks
+	// the directory and migrates an in-memory database.
+	Check bool
 
 	fail func(error)
 }

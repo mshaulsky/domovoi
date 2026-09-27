@@ -62,7 +62,8 @@ type deps struct {
 	scenes  []*MockScene
 	state   *state.State
 	metrics *MockMetrics
-	locale  Locale // nil: English, UTC
+	locale  Locale  // nil: English, UTC
+	history History // nil: no storage
 }
 
 func newDeps(t *testing.T, sceneCount int) deps {
@@ -95,7 +96,7 @@ func (d deps) coordinator(t *testing.T, cfg Config) *Coordinator {
 	for i, sc := range d.scenes {
 		scenes[i] = sc
 	}
-	c, err := New(cfg, d.disp, scenes, d.state, locale, quiet, d.metrics)
+	c, err := New(cfg, d.disp, scenes, d.state, locale, d.history, quiet, d.metrics)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +126,7 @@ func TestNew(t *testing.T) {
 			for range tt.scenes {
 				scenes = append(scenes, d.scenes[0])
 			}
-			c, err := New(tt.cfg, d.disp, scenes, d.state, tt.locale, quiet, d.metrics)
+			c, err := New(tt.cfg, d.disp, scenes, d.state, tt.locale, nil, quiet, d.metrics)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("error = %v, want containing %q", err, tt.wantErr)
@@ -262,6 +263,11 @@ func TestCoordinatorRenderView(t *testing.T) {
 		d.state.SetHealth("aqara", errors.New("down"), now)
 		almaty := time.FixedZone("Asia/Almaty", 5*3600)
 		d.locale = NewFixedLocale(bundle(t), almaty)
+		h := NewMockHistory(d.ctrl)
+		d.history = h
+		h.EXPECT().Extremes(gomock.Any(), model.DeviceID("tuya:a"), model.Temperature, gomock.Any()).Return(19.5, 22.0, true, nil)
+		h.EXPECT().Trend(gomock.Any(), model.DeviceID("tuya:a"), model.Temperature, now.Add(-trendWindow)).Return(0.4, true, nil)
+		h.EXPECT().Events(gomock.Any(), now.Add(-eventsWindow), eventsLimit).Return([]model.Event{{Device: "tuya:a", Kind: model.EventOnline, At: now}}, nil)
 		c := d.coordinator(t, Config{})
 		var got scene.View
 		d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).DoAndReturn(func(_ display.Surface, v scene.View) (*image.Paletted, error) {
@@ -280,6 +286,9 @@ func TestCoordinatorRenderView(t *testing.T) {
 		}
 		if r, ok := got.Reading("tuya:a", model.Temperature); !ok || r.Value.Num != 21 {
 			t.Errorf("reading = %+v, %t", r, ok)
+		}
+		if ex := got.Extremes["tuya:a"][model.Temperature]; ex.Min != 19.5 || ex.Max != 22 || got.Trends["tuya:a"][model.Temperature] != 0.4 || len(got.Events) != 1 {
+			t.Errorf("history = extremes %+v trends %v events %v", ex, got.Trends, got.Events)
 		}
 		if len(got.Sources) != 2 || got.Sources[0].Name != "aqara" || !got.Sources[0].Stale || got.Sources[1].Name != "tuya" || got.Sources[1].Stale {
 			t.Errorf("sources = %+v", got.Sources)

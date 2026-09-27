@@ -30,7 +30,7 @@ func writeConfig(t *testing.T, dir, yaml string) string {
 // pngConfig is a config with one pngfile display writing frame.png into dir.
 func pngConfig(t *testing.T, dir, extra string) string {
 	t.Helper()
-	return writeConfig(t, dir, extra+"displays:\n  - kind: pngfile\n    path: "+filepath.Join(dir, "frame.png")+"\n")
+	return writeConfig(t, dir, extra+"storage:\n  path: "+filepath.Join(dir, "domovoi.db")+"\ndisplays:\n  - kind: pngfile\n    path: "+filepath.Join(dir, "frame.png")+"\n")
 }
 
 // failing is a module whose Start reports a fatal failure shortly after.
@@ -71,6 +71,10 @@ func TestRun(t *testing.T) {
 		if img.Bounds().Dx() != 800 || img.Bounds().Dy() != 480 {
 			t.Errorf("frame is %v", img.Bounds())
 		}
+		// A closed database checkpoints and removes its WAL.
+		if _, err := os.Stat(filepath.Join(dir, "domovoi.db-wal")); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("the database was not closed after -once: %v", err)
+		}
 	})
 	t.Run("check builds everything and writes nothing", func(t *testing.T) {
 		dir := t.TempDir()
@@ -78,8 +82,10 @@ func TestRun(t *testing.T) {
 		if err := Run(t.Context(), Options{ConfigPath: path, Check: true, Lookup: config.MapLookup(nil), LogOutput: io.Discard}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := os.Stat(filepath.Join(dir, "frame.png")); !errors.Is(err, os.ErrNotExist) {
-			t.Errorf("check wrote a frame: %v", err)
+		for _, name := range []string{"frame.png", "domovoi.db"} {
+			if _, err := os.Stat(filepath.Join(dir, name)); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("check wrote %s: %v", name, err)
+			}
 		}
 	})
 	t.Run("runs until cancelled", func(t *testing.T) {

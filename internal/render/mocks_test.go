@@ -17,6 +17,7 @@ import (
 
 	display "github.com/mshaulsky/domovoi/internal/display"
 	i18n "github.com/mshaulsky/domovoi/internal/i18n"
+	model "github.com/mshaulsky/domovoi/internal/model"
 	scene "github.com/mshaulsky/domovoi/internal/scene"
 	state "github.com/mshaulsky/domovoi/internal/state"
 	gomock "go.uber.org/mock/gomock"
@@ -125,6 +126,78 @@ func (m *MockScene) Render(s display.Surface, v scene.View) (*image.Paletted, er
 func (mr *MockSceneMockRecorder) Render(s, v any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Render", reflect.TypeOf((*MockScene)(nil).Render), s, v)
+}
+
+// MockHistory is a mock of History interface.
+type MockHistory struct {
+	ctrl     *gomock.Controller
+	recorder *MockHistoryMockRecorder
+	isgomock struct{}
+}
+
+// MockHistoryMockRecorder is the mock recorder for MockHistory.
+type MockHistoryMockRecorder struct {
+	mock *MockHistory
+}
+
+// NewMockHistory creates a new mock instance.
+func NewMockHistory(ctrl *gomock.Controller) *MockHistory {
+	mock := &MockHistory{ctrl: ctrl}
+	mock.recorder = &MockHistoryMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockHistory) EXPECT() *MockHistoryMockRecorder {
+	return m.recorder
+}
+
+// Events mocks base method.
+func (m *MockHistory) Events(ctx context.Context, since time.Time, limit int) ([]model.Event, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Events", ctx, since, limit)
+	ret0, _ := ret[0].([]model.Event)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Events indicates an expected call of Events.
+func (mr *MockHistoryMockRecorder) Events(ctx, since, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Events", reflect.TypeOf((*MockHistory)(nil).Events), ctx, since, limit)
+}
+
+// Extremes mocks base method.
+func (m_2 *MockHistory) Extremes(ctx context.Context, id model.DeviceID, m model.Metric, since time.Time) (float64, float64, bool, error) {
+	m_2.ctrl.T.Helper()
+	ret := m_2.ctrl.Call(m_2, "Extremes", ctx, id, m, since)
+	ret0, _ := ret[0].(float64)
+	ret1, _ := ret[1].(float64)
+	ret2, _ := ret[2].(bool)
+	ret3, _ := ret[3].(error)
+	return ret0, ret1, ret2, ret3
+}
+
+// Extremes indicates an expected call of Extremes.
+func (mr *MockHistoryMockRecorder) Extremes(ctx, id, m, since any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Extremes", reflect.TypeOf((*MockHistory)(nil).Extremes), ctx, id, m, since)
+}
+
+// Trend mocks base method.
+func (m_2 *MockHistory) Trend(ctx context.Context, id model.DeviceID, m model.Metric, since time.Time) (float64, bool, error) {
+	m_2.ctrl.T.Helper()
+	ret := m_2.ctrl.Call(m_2, "Trend", ctx, id, m, since)
+	ret0, _ := ret[0].(float64)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// Trend indicates an expected call of Trend.
+func (mr *MockHistoryMockRecorder) Trend(ctx, id, m, since any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Trend", reflect.TypeOf((*MockHistory)(nil).Trend), ctx, id, m, since)
 }
 
 // MockLocale is a mock of Locale interface.

@@ -30,7 +30,7 @@ func newCore(t *testing.T) deps {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	d := deps{ctrl: ctrl, state: state.New(), metrics: NewMockMetrics(ctrl)}
-	d.core = New(d.state, quiet, d.metrics)
+	d.core = New(d.state, Config{}, quiet, d.metrics)
 	return d
 }
 
@@ -44,6 +44,9 @@ func TestNew(t *testing.T) {
 	d := newCore(t)
 	if d.core.state != d.state || len(d.core.pollers) != 0 || len(d.core.coordinators) != 0 {
 		t.Errorf("core = %+v", d.core)
+	}
+	if d.core.cfg.Heartbeat != DefaultHeartbeat || d.core.cfg.Retention != DefaultRetention {
+		t.Errorf("defaults not applied: %+v", d.core.cfg)
 	}
 }
 
@@ -267,4 +270,105 @@ func TestCoreLaterCommands(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCoreSetStore(t *testing.T) {
+	lock := model.Device{ID: "aqara:lock", Name: "Lock", Kind: model.KindLock}
+	reading := func(v bool, at time.Time) model.Reading {
+		return model.Reading{Device: lock.ID, Metric: model.Locked, Value: model.BoolValue(v), At: at}
+	}
+	t.Run("changes, heartbeats and events reach the store in one call", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			start := time.Now()
+			d := newCore(t)
+			st := NewMockStore(d.ctrl)
+			d.core.SetStore(st)
+			d.metrics.EXPECT().IncEvent(gomock.Any()).AnyTimes()
+			gomock.InOrder(
+				// first sight: device, reading, no event
+				st.EXPECT().Persist(gomock.Any(), []model.Device{lock}, []model.Reading{reading(true, start)}, nil, start).Return(nil),
+				// unchanged within the heartbeat: nothing to write, no call
+				// changed: the reading and the unlocked event
+				st.EXPECT().Persist(gomock.Any(), nil, []model.Reading{reading(false, start.Add(2*time.Minute))}, gomock.Len(1), start.Add(2*time.Minute)).Return(nil),
+				// unchanged but the heartbeat elapsed: the value again, stamped now
+				st.EXPECT().Persist(gomock.Any(), nil, []model.Reading{reading(false, start.Add(2*time.Minute+DefaultHeartbeat))}, nil, start.Add(2*time.Minute+DefaultHeartbeat)).Return(nil),
+			)
+			d.core.Batch("aqara", source.Batch{Devices: []model.Device{lock}, Readings: []model.Reading{reading(true, start)}})
+			time.Sleep(time.Minute)
+			d.core.Batch("aqara", source.Batch{Readings: []model.Reading{reading(true, start)}})
+			time.Sleep(time.Minute)
+			d.core.Batch("aqara", source.Batch{Readings: []model.Reading{reading(false, start.Add(2*time.Minute))}})
+			time.Sleep(DefaultHeartbeat)
+			d.core.Batch("aqara", source.Batch{Readings: []model.Reading{reading(false, start.Add(2*time.Minute))}})
+		})
+	})
+	t.Run("nothing is persisted while the clock is behind the floor", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			d := newCore(t)
+			d.core.cfg.ClockFloor = time.Now().Add(time.Hour)
+			st := NewMockStore(d.ctrl) // no expectations: a call would fail the test
+			d.core.SetStore(st)
+			d.core.Batch("aqara", source.Batch{Devices: []model.Device{lock}, Readings: []model.Reading{reading(true, time.Now())}})
+		})
+	})
+	t.Run("a persist error is logged and counted, not fatal", func(t *testing.T) {
+		d := newCore(t)
+		st := NewMockStore(d.ctrl)
+		d.core.SetStore(st)
+		st.EXPECT().Persist(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("disk full"))
+		d.metrics.EXPECT().IncStoreError("persist")
+		d.metrics.EXPECT().IncEvent("button_pressed")
+		d.core.Event(model.Event{Device: lock.ID, Kind: model.EventButtonPressed, At: time.Now()})
+	})
+	t.Run("a failed write leaves the heartbeat due", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			start := time.Now()
+			d := newCore(t)
+			st := NewMockStore(d.ctrl)
+			d.core.SetStore(st)
+			d.metrics.EXPECT().IncStoreError("persist")
+			gomock.InOrder(
+				st.EXPECT().Persist(gomock.Any(), []model.Device{lock}, []model.Reading{reading(true, start)}, nil, start).Return(errors.New("disk stalled")),
+				// nothing was stamped, so the unchanged value is written again as a heartbeat at once
+				st.EXPECT().Persist(gomock.Any(), nil, []model.Reading{reading(true, start.Add(time.Minute))}, nil, start.Add(time.Minute)).Return(nil),
+			)
+			d.core.Batch("aqara", source.Batch{Devices: []model.Device{lock}, Readings: []model.Reading{reading(true, start)}})
+			time.Sleep(time.Minute)
+			d.core.Batch("aqara", source.Batch{Readings: []model.Reading{reading(true, start)}})
+		})
+	})
+	t.Run("Start restores the configured sources and prunes", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			d := newCore(t)
+			st := NewMockStore(d.ctrl)
+			d.core.SetStore(st)
+			p := NewMockPoller(d.ctrl)
+			p.EXPECT().Run(gomock.Any()).DoAndReturn(func(ctx context.Context) error { <-ctx.Done(); return nil })
+			d.core.AddPoller("aqara", p)
+			old := reading(true, time.Now().Add(-time.Hour))
+			gone := model.Device{ID: "tuya:old", Name: "Old"} // its source is no longer configured
+			st.EXPECT().Restore(gomock.Any()).Return([]model.Device{lock, gone}, []model.Reading{old,
+				{Device: gone.ID, Metric: model.Temperature, Value: model.NumberValue(20), At: old.At}}, nil)
+			st.EXPECT().Prune(gomock.Any(), gomock.Any()).Return(int64(3), nil)
+			ctx, cancel := context.WithCancel(t.Context())
+			if err := d.core.Start(ctx); err != nil {
+				t.Fatal(err)
+			}
+			synctest.Wait()
+			sn := d.state.Snapshot(time.Now())
+			if r, ok := sn.Reading(lock.ID, model.Locked); !ok || r != old || !sn.Restored {
+				t.Errorf("restored reading = %+v, %t, restored %t", r, ok, sn.Restored)
+			}
+			if _, ok := sn.Device(gone.ID); ok {
+				t.Error("a device of an unconfigured source was restored")
+			}
+			if _, ok := sn.Reading(gone.ID, model.Temperature); ok {
+				t.Error("a reading of an unconfigured source was restored")
+			}
+			cancel()
+			if err := d.core.Stop(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+		})
+	})
 }

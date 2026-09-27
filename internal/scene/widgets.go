@@ -139,9 +139,13 @@ func (Header) Draw(c *Canvas, r image.Rectangle, v View) {
 	c.Icon(icon.Calendar, iconSize, th.Ink, x, iconY)
 	x += iconSize + gap
 	x += c.Text(v.Bundle.Date(v.Now.In(loc(v))), face, th.Ink, x, baseline(face, left)) + s.px(24)
-	c.Icon(icon.Update, iconSize, th.Ink, x, iconY)
+	stampIcon, stamp := icon.Update, v.Bundle.T("scene.updated", i18n.Args{"Time": v.Clock(v.Now)})
+	if v.Restored {
+		stampIcon, stamp = icon.History, v.Bundle.T("scene.restored")
+	}
+	c.Icon(stampIcon, iconSize, th.Ink, x, iconY)
 	x += iconSize + gap
-	c.TextIn(v.Bundle.T("scene.updated", i18n.Args{"Time": v.Clock(v.Now)}), face, th.Ink, image.Rect(x, left.Min.Y, left.Max.X, left.Max.Y), AlignLeft)
+	c.TextIn(stamp, face, th.Ink, image.Rect(x, left.Min.Y, left.Max.X, left.Max.Y), AlignLeft)
 }
 
 // Draw renders the alert bar: accent background, paper text.
@@ -220,7 +224,7 @@ func (t ClimateTile) Draw(c *Canvas, r image.Rectangle, v View) {
 		drawSilence(c, rest, s, v, seen)
 		return
 	}
-	if ex, ok := v.Extremes[id][model.Temperature]; ok {
+	if ex, ok := v.Extremes[id][model.Temperature]; ok && ex.Min != ex.Max { // one point is no range yet
 		drawExtremes(c, rest, s, v, ex, v.Readings[id][model.Temperature].Value.Num)
 	}
 }

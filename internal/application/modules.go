@@ -11,8 +11,11 @@ import (
 func enabled() []container.Module {
 	return []container.Module{
 		modules.Tuya{},
+		modules.Aqara{},
+		modules.Weather{},
 		modules.PNGFile{},
 		modules.Scenes{},
+		&modules.Storage{},
 		&modules.Core{},
 	}
 }

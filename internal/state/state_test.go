@@ -2,6 +2,7 @@ package state
 
 import (
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -308,8 +309,8 @@ func TestStateApply(t *testing.T) {
 	s := New()
 	dev := model.Device{ID: "tuya:a", Name: "A"}
 	reading := model.Reading{Device: "tuya:a", Metric: model.Temperature, Value: model.NumberValue(21), At: epoch}
-	changes := s.Apply("tuya", []model.Device{dev}, []model.Reading{reading}, epoch)
-	if len(changes) != 1 || changes[0].Old != nil || changes[0].New != reading {
+	changes, retired := s.Apply("tuya", []model.Device{dev}, []model.Reading{reading}, epoch)
+	if len(changes) != 1 || changes[0].Old != nil || changes[0].New != reading || len(retired) != 0 {
 		t.Errorf("changes = %+v", changes)
 	}
 	sn := s.Snapshot(epoch)
@@ -321,5 +322,116 @@ func TestStateApply(t *testing.T) {
 	}
 	if h := sn.Health["tuya"]; !h.LastOK.Equal(epoch) || h.Err != "" {
 		t.Errorf("health = %+v", h)
+	}
+	// A changed value with the same vendor stamp takes the batch time.
+	changed := reading
+	changed.Value = model.NumberValue(22)
+	changes, _ = s.Apply("tuya", nil, []model.Reading{changed}, epoch.Add(time.Minute))
+	if len(changes) != 1 || !changes[0].New.At.Equal(epoch.Add(time.Minute)) {
+		t.Errorf("re-stamp: changes = %+v", changes)
+	}
+	if r, _ := s.Snapshot(epoch.Add(time.Minute)).Reading(dev.ID, model.Temperature); !r.At.Equal(epoch.Add(time.Minute)) || r.Value.Num != 22 {
+		t.Errorf("held reading = %+v", r)
+	}
+	// A second change under the same frozen vendor stamp is a change too,
+	// at its own batch time — not stale data to be ignored.
+	third := changed
+	third.Value = model.NumberValue(23)
+	changes, _ = s.Apply("tuya", nil, []model.Reading{third}, epoch.Add(2*time.Minute))
+	if len(changes) != 1 || !changes[0].New.At.Equal(epoch.Add(2*time.Minute)) {
+		t.Errorf("frozen vendor stamp, second change: changes = %+v", changes)
+	}
+	// The held value seen again moves the observation, not the stamp; a
+	// change stamped before that observation takes the batch time: 23 was
+	// still being observed at +3m.
+	if changes, _ = s.Apply("tuya", nil, []model.Reading{third}, epoch.Add(3*time.Minute)); len(changes) != 0 {
+		t.Errorf("the held value seen again reported %d changes", len(changes))
+	}
+	later := third
+	later.Value, later.At = model.NumberValue(24), epoch.Add(150*time.Second)
+	changes, _ = s.Apply("tuya", nil, []model.Reading{later}, epoch.Add(4*time.Minute))
+	if len(changes) != 1 || !changes[0].New.At.Equal(epoch.Add(4*time.Minute)) {
+		t.Errorf("re-stamp behind an observation: changes = %+v", changes)
+	}
+	// A vendor stamp newer than the last observation is trusted.
+	newest := later
+	newest.Value, newest.At = model.NumberValue(25), epoch.Add(5*time.Minute)
+	changes, _ = s.Apply("tuya", nil, []model.Reading{newest}, epoch.Add(6*time.Minute))
+	if len(changes) != 1 || !changes[0].New.At.Equal(epoch.Add(5*time.Minute)) {
+		t.Errorf("fresh vendor stamp: changes = %+v", changes)
+	}
+	// After a restart the restored stamp is not a vendor stamp: a change
+	// under an older vendor stamp is still a change.
+	s = New()
+	s.Restore([]model.Device{dev}, []model.Reading{{Device: dev.ID, Metric: model.Temperature, Value: model.NumberValue(25), At: epoch.Add(5 * time.Minute)}})
+	live := reading
+	live.Value, live.At = model.NumberValue(26), epoch // the frozen update_time
+	changes, _ = s.Apply("tuya", nil, []model.Reading{live}, epoch.Add(10*time.Minute))
+	if len(changes) != 1 || !changes[0].New.At.Equal(epoch.Add(10*time.Minute)) {
+		t.Errorf("change after restore under an old vendor stamp: changes = %+v", changes)
+	}
+}
+
+func TestStateApplyRetire(t *testing.T) {
+	tests := []struct {
+		name        string
+		listing     []model.Device // the source's listing in the batch under test
+		wantRetired []model.DeviceID
+	}{
+		{name: "a nil listing retires nothing"},
+		{name: "an empty listing retires nothing", listing: []model.Device{}},
+		{name: "a listing retires the source's devices it omits", listing: []model.Device{bedroom}, wantRetired: []model.DeviceID{"tuya:ghost", office.ID}},
+		{name: "a listing naming everything retires nothing", listing: []model.Device{bedroom, office, {ID: "tuya:ghost"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := New()
+			// Two tuya devices, one aqara device, and a tuya reading without a device row.
+			s.Restore([]model.Device{bedroom, office, hallLk}, []model.Reading{
+				reading(bedroom.ID, model.Temperature, model.NumberValue(21), epoch),
+				reading(office.ID, model.Temperature, model.NumberValue(22), epoch),
+				reading(hallLk.ID, model.Locked, model.BoolValue(true), epoch),
+				reading("tuya:ghost", model.Temperature, model.NumberValue(9), epoch),
+			})
+			_, retired := s.Apply("tuya", tt.listing, nil, epoch.Add(time.Minute))
+			if !slices.Equal(retired, tt.wantRetired) {
+				t.Fatalf("retired = %v, want %v", retired, tt.wantRetired)
+			}
+			sn := s.Snapshot(epoch.Add(time.Minute))
+			for _, id := range tt.wantRetired {
+				if _, ok := sn.Device(id); ok {
+					t.Errorf("%s still listed", id)
+				}
+				if _, ok := sn.Reading(id, model.Temperature); ok {
+					t.Errorf("%s still has readings", id)
+				}
+			}
+			if _, ok := sn.Device(bedroom.ID); !ok {
+				t.Error("a listed device was retired")
+			}
+			if r, ok := sn.Reading(hallLk.ID, model.Locked); !ok || !r.Value.Bool() {
+				t.Error("another source's device was touched")
+			}
+		})
+	}
+}
+
+func TestStateRestore(t *testing.T) {
+	s := New()
+	dev := model.Device{ID: "tuya:a", Name: "A"}
+	reading := model.Reading{Device: "tuya:a", Metric: model.Temperature, Value: model.NumberValue(21), At: epoch.Add(-time.Hour)}
+	s.Restore([]model.Device{dev}, []model.Reading{reading})
+	sn := s.Snapshot(epoch)
+	if _, ok := sn.Device(dev.ID); !ok || !sn.Restored {
+		t.Errorf("restored snapshot = devices %v restored %t", sn.Devices, sn.Restored)
+	}
+	if r, ok := sn.Reading(dev.ID, model.Temperature); !ok || r != reading {
+		t.Errorf("reading = %+v, %t", r, ok)
+	}
+	if changes, _ := s.Apply("tuya", nil, []model.Reading{reading}, epoch); len(changes) != 0 {
+		t.Errorf("a live batch equal to the restored picture reported %d changes", len(changes))
+	}
+	if s.Snapshot(epoch).Restored {
+		t.Error("a live batch must clear Restored")
 	}
 }

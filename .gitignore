@@ -12,3 +12,8 @@ go.work.sum
 .env
 /domovoi.yaml
 /frame.png
+
+# SQLite files a local run leaves behind (the service keeps its own under /var/lib/domovoi)
+*.db
+*.db-wal
+*.db-shm

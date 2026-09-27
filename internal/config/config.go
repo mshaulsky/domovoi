@@ -20,6 +20,14 @@ type Config struct {
 	Language string
 	Sources  []SourceSection
 	Displays []DisplaySection
+	Storage  StorageSection
+}
+
+// StorageSection is where history lives and how long it is kept.
+type StorageSection struct {
+	Path      string        // the SQLite file; relative to the working directory
+	Retention time.Duration // readings and events older than this are pruned
+	Heartbeat time.Duration // an unchanged series still gets a row this often
 }
 
 // SourceSection is one configured source instance.
@@ -58,6 +66,10 @@ const (
 	// staleFactor times the interval, but never less than minStaleAfter.
 	staleFactor   = 3
 	minStaleAfter = 5 * time.Minute
+
+	DefaultStoragePath = "domovoi.db"
+	DefaultRetention   = 90 * 24 * time.Hour
+	DefaultHeartbeat   = time.Hour
 )
 
 var (
@@ -72,10 +84,17 @@ var (
 
 // file is the YAML shape of the document.
 type file struct {
-	Timezone string    `yaml:"timezone"`
-	Language string    `yaml:"language"`
-	Sources  []section `yaml:"sources"`
-	Displays []section `yaml:"displays"`
+	Timezone string        `yaml:"timezone"`
+	Language string        `yaml:"language"`
+	Sources  []section     `yaml:"sources"`
+	Displays []section     `yaml:"displays"`
+	Storage  storageFields `yaml:"storage"`
+}
+
+type storageFields struct {
+	Path      string        `yaml:"path"`
+	Retention time.Duration `yaml:"retention"`
+	Heartbeat time.Duration `yaml:"heartbeat"`
 }
 
 // section keeps the raw mapping of one list entry; the head is split off
@@ -135,6 +154,16 @@ func Parse(data []byte, lookup Lookup) (Config, error) {
 		return Config{}, err
 	}
 	cfg.Timezone = loc
+	cfg.Storage = StorageSection{Path: f.Storage.Path, Retention: f.Storage.Retention, Heartbeat: f.Storage.Heartbeat}
+	if cfg.Storage.Path == "" {
+		cfg.Storage.Path = DefaultStoragePath
+	}
+	if cfg.Storage.Retention == 0 {
+		cfg.Storage.Retention = DefaultRetention
+	}
+	if cfg.Storage.Heartbeat == 0 {
+		cfg.Storage.Heartbeat = DefaultHeartbeat
+	}
 	for i, sec := range f.Sources {
 		src, err := sec.source()
 		if err != nil {
@@ -241,6 +270,9 @@ func (s *section) display(language string) (DisplaySection, error) {
 func (c Config) validate() error {
 	if len(c.Displays) == 0 {
 		return errors.New("at least one display is required")
+	}
+	if c.Storage.Retention < 0 || c.Storage.Heartbeat < 0 {
+		return errors.New("storage: retention and heartbeat must be positive")
 	}
 	seen := map[string]bool{}
 	for i, s := range c.Sources {

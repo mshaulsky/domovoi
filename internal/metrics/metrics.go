@@ -19,6 +19,7 @@ type Registry struct {
 	renders        *prometheus.CounterVec
 	renderDuration *prometheus.HistogramVec
 	renderErrors   *prometheus.CounterVec
+	storeErrors    *prometheus.CounterVec
 }
 
 // namespace prefixes every family name.
@@ -64,12 +65,16 @@ func New() *Registry {
 			Namespace: namespace, Name: "render_errors_total",
 			Help: "Frames a display failed to show.",
 		}, []string{"display"}),
+		storeErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace, Name: "store_errors_total",
+			Help: "Storage operations that failed, by operation.",
+		}, []string{"op"}),
 	}
 	r.reg.MustRegister(
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		r.polls, r.pollDuration, r.requests, r.events,
-		r.renders, r.renderDuration, r.renderErrors,
+		r.renders, r.renderDuration, r.renderErrors, r.storeErrors,
 	)
 	return r
 }
@@ -112,6 +117,11 @@ func (r *Registry) ObserveRenderDuration(display string, d time.Duration) {
 // IncRenderError counts a frame the display failed to show.
 func (r *Registry) IncRenderError(display string) {
 	r.renderErrors.WithLabelValues(display).Inc()
+}
+
+// IncStoreError counts a failed storage operation.
+func (r *Registry) IncStoreError(op string) {
+	r.storeErrors.WithLabelValues(op).Inc()
 }
 
 // Handler serves the registry in the Prometheus exposition format; httpd

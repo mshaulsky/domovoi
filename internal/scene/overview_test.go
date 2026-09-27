@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/mshaulsky/domovoi/internal/display"
 )
@@ -47,6 +48,16 @@ func TestOverviewRender(t *testing.T) {
 				v.Alerts = nil
 				v.Devices = v.Devices[:5]
 				v.Note = "Дома всё спокойно, влажность в норме."
+			},
+		},
+		{
+			name: "restored", lang: "ru", surface: surface(800, 480, false),
+			mutate: func(v *View) {
+				v.Restored = true
+				v.Alerts, v.Events = nil, nil
+				for i := range v.Sources {
+					v.Sources[i].LastOK, v.Sources[i].Stale = time.Time{}, true
+				}
 			},
 		},
 		{

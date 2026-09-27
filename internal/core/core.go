@@ -18,8 +18,11 @@ import (
 // Core owns the state and runs the loops.
 type Core struct {
 	state   *state.State
+	cfg     Config
 	log     *slog.Logger
 	metrics Metrics
+	store   Store           // nil: nothing is persisted
+	ctx     context.Context // the run's context, for persistence outside a call that has one
 
 	mu           sync.Mutex
 	pollers      map[string]Poller
@@ -29,22 +32,65 @@ type Core struct {
 	cancel       context.CancelFunc
 	wg           sync.WaitGroup
 	started      bool
+	lastWritten  map[seriesKey]time.Time // when each series last got a row, for the heartbeat
+	clockWarned  bool
 }
+
+// Config tunes persistence.
+type Config struct {
+	Heartbeat  time.Duration // an unchanged series still gets a row this often; defaults to DefaultHeartbeat
+	Retention  time.Duration // readings and events older than this are pruned daily; defaults to DefaultRetention
+	ClockFloor time.Time     // nothing is persisted while the clock reads earlier than this (no RTC, NTP not yet synced)
+}
+
+// seriesKey identifies one series of readings.
+type seriesKey struct {
+	device model.DeviceID
+	metric model.Metric
+}
+
+// Persistence defaults.
+const (
+	DefaultHeartbeat = time.Hour
+	DefaultRetention = 90 * 24 * time.Hour
+	// persistTimeout bounds one storage call; SQLite on the Pi answers in
+	// milliseconds, so hitting it means the card is dying.
+	persistTimeout = 10 * time.Second
+	// pruneEvery is how often old rows are deleted.
+	pruneEvery = 24 * time.Hour
+)
 
 // ErrNotImplemented marks commands whose feature is a later stage.
 var ErrNotImplemented = errors.New("not implemented yet")
 
 // New returns a core around a state.
-func New(st *state.State, log *slog.Logger, m Metrics) *Core {
+func New(st *state.State, cfg Config, log *slog.Logger, m Metrics) *Core {
+	if cfg.Heartbeat <= 0 {
+		cfg.Heartbeat = DefaultHeartbeat
+	}
+	if cfg.Retention <= 0 {
+		cfg.Retention = DefaultRetention
+	}
 	return &Core{
 		state:        st,
+		cfg:          cfg,
 		log:          log.With("component", "core"),
 		metrics:      m,
+		ctx:          context.Background(),
 		pollers:      map[string]Poller{},
 		coordinators: map[string]Coordinator{},
 		pending:      map[string]bool{},
 		awaiting:     map[string]bool{},
+		lastWritten:  map[seriesKey]time.Time{},
 	}
+}
+
+// SetStore attaches the storage: batches and events are persisted from now
+// on, and Start seeds the state from it.
+func (c *Core) SetStore(s Store) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.store = s
 }
 
 // AddPoller registers a source's poller under the source name.
@@ -66,17 +112,24 @@ func (c *Core) AddCoordinator(co Coordinator) {
 // Batch applies a source's pass atomically: devices and readings into the
 // state and the source marked healthy, then the changes into events.
 func (c *Core) Batch(name string, b source.Batch) {
-	changes := c.state.Apply(name, b.Devices, b.Readings, time.Now())
-	for _, e := range state.Classify(changes) {
+	now := time.Now()
+	changes, retired := c.state.Apply(name, b.Devices, b.Readings, now)
+	if len(retired) > 0 {
+		c.log.Info("devices retired: absent from the source's listing", "source", name, "devices", retired)
+	}
+	events := state.Classify(changes)
+	for _, e := range events {
 		c.journal(e)
 	}
 	c.log.Debug("batch applied", "source", name, "devices", len(b.Devices), "readings", len(b.Readings), "changes", len(changes))
+	c.persist(b.Devices, b.Readings, changes, events, now)
 	c.settle(name, true)
 }
 
 // Event records an event a watcher produced (a button press).
 func (c *Core) Event(e model.Event) {
 	c.journal(e)
+	c.persist(nil, nil, nil, []model.Event{e}, time.Now())
 }
 
 // Health records a source's failure or recovery. A failing source still
@@ -89,12 +142,20 @@ func (c *Core) Health(name string, err error) {
 // Start runs every poller and coordinator in the background.
 func (c *Core) Start(ctx context.Context) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.started {
+		c.mu.Unlock()
 		return errors.New("core: already started")
 	}
 	ctx, c.cancel = context.WithCancel(ctx)
+	c.ctx = ctx
 	c.started = true
+	c.mu.Unlock()
+
+	c.restore(ctx) // before any poller runs: the live picture wins over the remembered one
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.wg.Go(func() { c.housekeeping(ctx) })
 	for name, p := range c.pollers {
 		c.wg.Go(func() {
 			if err := p.Run(ctx); err != nil {
@@ -140,6 +201,10 @@ func (c *Core) Stop(ctx context.Context) error {
 // Once polls every source a single time, then renders every display once.
 // Every source is tried even if one fails; the errors are joined.
 func (c *Core) Once(ctx context.Context) error {
+	c.mu.Lock()
+	c.ctx = ctx
+	c.mu.Unlock()
+	c.restore(ctx)
 	c.mu.Lock()
 	pollers := maps.Clone(c.pollers)
 	coordinators := slices.Collect(maps.Values(c.coordinators))

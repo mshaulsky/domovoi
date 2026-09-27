@@ -53,13 +53,15 @@ internal/model            Reading, Value, Device, Metric, Event; metric catalogu
 internal/source           Source, Watcher, Controller, Sink, Batch; Poller (adapts a Source to the Sink)
 internal/source/tuya          tuyacloud adapter
 internal/source/aqara         aqaramcp adapter
+internal/source/weather       Open-Meteo virtual source: the outside tile
 internal/source/mqtt          Zigbee2MQTT adapter (later)
 internal/source/system        Pi health + request counters (later)
 internal/state            State: latest reading per device+metric, change → event classification
 internal/storage/sqlite   infrastructure only: Open (PRAGMAs), goose migrations, migrations/*.sql
-internal/storage/devices  Repository: Upsert, All
-internal/storage/readings Repository: Write, Series, Extremes, Last; Point
-internal/storage/events   Repository: Add, Since
+internal/storage/devices  Repository: Upsert, All, Prune
+internal/storage/readings Repository: Write, Series, Extremes, Last, Before, LastAll, Prune; Point
+internal/storage/events   Repository: Write, Since, Prune
+internal/storage/store    the unit of work: Persist (one transaction per batch), Restore, Prune, and History for the scenes
 internal/storage/alerts   Repository: Open, Close, Ack, Active
 internal/storage/settings Repository: Get, Set, All
 internal/alert            rules → Alert set (active/resolved), sinks
@@ -199,29 +201,27 @@ type Container struct {
     Config   Lazy[*config.Config]
     Logger   Lazy[*slog.Logger]
     Metrics  Lazy[*metrics.Registry]
-    DB       Lazy[*sql.DB]              // provided by modules.Storage via sqlite.Open
-    Readings Lazy[*readings.Repository] // one Lazy per repository
-    Events   Lazy[*events.Repository]
-    Devices  Lazy[*devices.Repository]
-    Alerts   Lazy[*alerts.Repository]
-    Settings Lazy[*settings.Repository]
+    DB       Lazy[*sql.DB]       // provided by modules.Storage via sqlite.Open
+    Store    Lazy[*store.Store]  // the unit of work over the repositories
     State    Lazy[*state.State]
-    Core     Lazy[*core.Core]           // also the Commands implementation
+    Core     Lazy[*core.Core]    // also the Commands implementation
     HTTP     Lazy[*httpd.Server]
 
     Sources  Registry[source.Constructor]  // kind → constructor; Add twice = error
     Displays Registry[display.Constructor]
     Scenes   Registry[scene.Scene]
+
+    Check bool // -check: build everything, touch nothing outside the process
 }
 ```
 
 A singleton is built on first `Get()` and reaches its neighbours the same
-way (`DB` reads the path from `c.Config.Get()`, `Readings` takes `c.DB`,
-`Core` takes `c.State` and the repositories). What nobody asks for is never
-created: `-once` with no Telegram section never builds it. Cycles are not
-detected, just forbidden: the container points the same way as the
-packages. Tests call `c.Readings.Set(fake)` before the first `Get` and
-assemble the whole application on fakes.
+way (`DB` reads the path from `c.Config.Get()`, `Store` takes `c.DB`,
+`Core` takes `c.State` and `c.Store`). What nobody asks for is never
+created: `-once` with no Telegram section never builds it. A `Get` from
+inside a builder that leads back to the same `Lazy` fails with `ErrCycle`
+instead of deadlocking. Tests call `c.Store.Set(fake)` before the first
+`Get` and assemble the whole application on fakes.
 
 ### Run
 
@@ -418,7 +418,10 @@ sources:
     region: eu
   - kind: aqara
     interval: 90s
-    api_key: ${AQARA_MCP_KEY}
+    username: ${AQARA_USERNAME}         # the account the source signs in with…
+    password_md5: ${AQARA_PASSWORD_MD5} # …the service only ever sees the MD5
+    region: RU                          # EU, RU, US, CN, KR or SG
+    # api_key: ${AQARA_MCP_KEY}         # a key from the login page instead of, or until it expires before, signing in
 ```
 
 ### Adapters
@@ -430,10 +433,21 @@ listing (names, `Online`, `update_time`; rooms are absent) and fills
 instead of two per minute. Readings are stamped with the device's
 `update_time` from the listing (clamped to the poll time), not with the
 poll time, so the cloud's cached values of a silent sensor carry their real
-age: a device whose newest reading is older than `state.DeviceStaleAfter`
-(2 h) is stale even on a healthy source, and its tile says "no data since
+age. Tuya's `update_time` moves on network events (online, offline, a
+battery swap), not on every report, so the State re-stamps a *changed*
+value with the batch time unless the vendor stamp is newer than the last
+moment the previous value was observed: a device's newest reading time is
+then its last sign of life — last change or last network event — and two
+different values never share a moment in history. After a restart with an
+empty database there is no previous value to compare against, so a quiet
+device's first frame may say "no data since" its last network event until
+its value moves. A device without a sign of life for `state.DeviceStaleAfter`
+(3 h) is stale even on a healthy source, and its tile says "no data since
 …" where a live tile shows its extremes. The cloud's `online` flag is not
-trusted alone — it stayed true for a sensor a day silent. Offline devices
+trusted alone — it stayed true for a sensor a day silent. Per-point
+timestamps exist in Tuya's `shadow/properties` endpoint (one request per
+device); if false "no data" notes ever appear on quiet rooms, fetching it
+on listing polls is the next step. Offline devices
 are read too, so a tile keeps its last known values next to the offline
 mark. Mapping by
 data-point code, scale from the product `Specification`
@@ -455,18 +469,41 @@ Device kind by category (`wsdcg`→ClimateSensor, `cz`/`pc`→Outlet,
 **aqara** — one `Statuses(StatusFilter{})` call per poll, which also returns
 names, types and rooms, so it fills `Batch.Devices` every time; kind from
 `Device.Type`; `lock_state "1"→Locked true`, `water_leak→Leak`,
-`on_off→Power`, `online_offline→Online`. **Known gaps, stated openly:** no
+`on_off→Power`, `online_offline→Online`; any `lock_state` other than `"1"`
+reads as unlocked, and every distinct value is logged once at Info so the
+unlocked value can be confirmed from the journal. **Known gaps, stated openly:** no
 power metering, no clicks and **no battery level** for any Aqara device
 through MCP (low-battery alerts cover Tuya sensors only until the Zigbee
 stick); the `lock_state` value of an *unlocked* U200 has not been observed
 yet — verification item for stage 2 (unlock, poll, record). Implements
 `Controller` later through `device_status_control` for the automation hook.
+**The key renews itself.** The MCP key the login page hands out expires
+after days (no documented lifetime; observed under two weeks) and there is
+no refresh token — the page simply signs in again, with one plain POST of
+the account, the MD5 of the password and the region (`RU` for a Kazakh
+account). `aqaramcp.WithLogin` does the same inside the client: a rejected
+key is replaced within the poll that met the rejection and the call is made
+again, so the screen never sees the gap; a refused sign-in (wrong account,
+password or region) is a source error like any other and is not retried
+for an hour. Every sign-in is logged at Info with the region and the key's
+length — never the key — which is also how the real lifetime gets measured.
+A dedicated Aqara account, shared into the home as a family member, keeps
+the owner's password off the Pi; its MD5 is what the credential store holds
+(the client takes only the digest, never the password). Verified live: the
+member account's key reads every device, and a new sign-in does not revoke
+earlier keys. **Endpoint IDs are per account**: the same devices carry
+different `Aqr~…` IDs under the owner's key and under the member's, so
+switching accounts changes every `aqara:` device ID — the listing rule in
+the State section retires the old ones.
 
 **weather** (stage 2) — a virtual source on Open-Meteo (free, no key, JSON):
 one request every `interval` (default 20 min) for current conditions plus
 today's daily forecast and sun times at the configured `latitude`/
-`longitude`, in the configured timezone; one device `weather:home` of kind
-`Virtual`; `online` reflects the last fetch. The first source that is not a
+`longitude`, in the configured timezone (or `auto`, the coordinates' own
+zone, when none is configured — the system zone has no name the API would
+take); readings are dated with the UTC offset the answer reports, so the
+stamps are right whatever zone the process runs in. One device
+`weather:home` of kind `Virtual`; `online` reflects the last fetch. The first source that is not a
 vendor cloud, which is exactly why it comes early: it proves the virtual
 source path.
 
@@ -494,12 +531,27 @@ the metric catalogue in `model`. Events from watchers (button) pass through as t
 to the store, to the alert engine, to the advisor context and to the back
 office timeline — the journal is what makes "what happened today" answerable.
 
+**A listing defines the set.** A source that fills `Batch.Devices` hands
+over its whole inventory (Tuya on its first poll and every fifth, Aqara and
+weather on every poll), so devices of that source missing from it are
+*retired*: dropped from the state with their readings, logged by the core,
+gone from the next frame. History stays in storage. That is how a device
+removed from the account, a sensor re-paired under a new ID, or the ghosts
+of a different cloud account (Aqara's endpoint IDs are per account) leave
+the screen without anyone editing a database. An empty listing is
+distrusted and retires no one: a cloud answering nothing is far likelier
+than a home with nothing in it. `Restore` seeds what the database knows
+about the *configured* sources — a renamed or removed section's devices
+stay in the file, not on the screen — and the first listing trims the rest
+before the first frame.
+
 ## Storage (`internal/storage`)
 
 `modernc.org/sqlite` through `database/sql`, WAL, `synchronous=NORMAL`.
 `storage/sqlite` is infrastructure only — `Open(path)` applies the PRAGMAs
-and runs the migrations and is called by the container when it builds the
-`DB` singleton. Everything else is one repository package per entity
+and runs the migrations and is called by the storage module when it builds
+the `DB` singleton (under `-check` with `sqlite.Memory` instead of the
+configured file, after verifying the file's directory exists). Everything else is one repository package per entity
 (`devices`, `readings`, `events`, `alerts`, `settings`), each a `Repository`
 constructed with a ready connection, holding the SQL of its entity and
 nothing else — no opening, no closing, no policy:
@@ -518,14 +570,22 @@ type DBTX interface {
 func New(db DBTX) *Repository
 func (r *Repository) Write(ctx context.Context, rs []model.Reading) error   // writes what it is given
 func (r *Repository) Series(ctx context.Context, id model.DeviceID, m model.Metric, since time.Time) ([]Point, error)
-func (r *Repository) Extremes(ctx context.Context, id model.DeviceID, m model.Metric, since time.Time) (lo, hi Point, err error)
+func (r *Repository) Extremes(ctx context.Context, id model.DeviceID, m model.Metric, since time.Time) (lo, hi Point, ok bool, err error)
 func (r *Repository) Last(ctx context.Context, id model.DeviceID, m model.Metric) (Point, bool, error)
+func (r *Repository) Before(ctx context.Context, id model.DeviceID, m model.Metric, t time.Time) (Point, bool, error)
+func (r *Repository) LastAll(ctx context.Context) ([]model.Reading, error)   // restore after a restart
+func (r *Repository) Prune(ctx context.Context, before time.Time) (int64, error)
 ```
 
-The only state inside a repository is the `device+metric → series.id`
-cache, which is about the schema, not policy. Consumers declare the
-interfaces they need where they use them (`History` in `scene`, `Journal`
-in `core`); the repositories simply satisfy them.
+Repositories keep no state: series IDs are resolved per write (two cheap
+statements per series per batch), which keeps a repository over a
+transaction free — the `device+metric → series.id` cache the first draft
+planned is unneeded at this scale. `storage/store` is the unit of work
+above them: it opens the one transaction per batch (`Persist` upserts
+devices, writes readings and journals events together), runs the restore
+query and the pruning, and answers the history queries scenes need. The
+core sees it as its `Store` interface, the render coordinator as
+`History`; neither touches SQL.
 
 ```sql
 CREATE TABLE devices  (id TEXT PRIMARY KEY, source TEXT NOT NULL, name TEXT NOT NULL, room TEXT,
@@ -552,10 +612,23 @@ already reports which readings changed; the core writes those, plus a
 `heartbeat` row (default 1 h) for series that have not changed — charts
 carry the last value forward, and "still alive" is what the `online` metric
 is for. The core keeps its own "last written at" map for the heartbeat. One
-transaction per poll batch. Prune older than `retention` (default 90 d)
-once a day; freed pages are reused, no VACUUM. Because only changes are
-written, the last row of a series *is* the last change ("locked 2 h ago" is
-one query, `Last`).
+transaction per poll batch, bounded by a 10 s timeout; a failed write is
+logged and counted (`domovoi_store_errors_total`), never fatal, and the
+series it carried are not marked as written, so the next batch writes their
+values again. Readings are stored at their own stamp; a heartbeat row
+carries the value forward to the poll time, and the State stamps a changed
+value with its batch time whenever the vendor stamp is not newer than the
+last observation of the previous value, so a change always lands after the
+heartbeat that preceded it.
+Prune older than `retention` (default 90 d) once a day from the core's
+housekeeping goroutine, in one transaction: readings and events first, then
+the series they left empty, then the devices unseen for longer than the
+retention with no series left — a retired device's row goes when its
+history does; freed pages are reused, no VACUUM. Because only
+changes are written, the last row of a series *is* the last change
+("locked 2 h ago" is one query, `Last`). Heartbeat rows are stamped with
+the poll time, so a chart carries a value forward; changed readings keep
+the stamp the State gave them.
 
 **Sizing** for this home (~40 series, climate values changing 10–15×/h):
 ~3 500 rows/day at ~25 bytes → a plateau around 10 MB at 90 days; events
@@ -659,8 +732,9 @@ the source named X". SIGHUP triggers the same reload.
 
 ## Secrets
 
-Four of them: Tuya access ID and key, the Aqara MCP key, the Telegram bot
-token, the back-office password. The database holds none, ever.
+Four of them: Tuya access ID and key, the Aqara account and the MD5 of its
+password (a dedicated family-member account, not the owner's), the Telegram
+bot token, the back-office password. The database holds none, ever.
 
 - **At rest on the Pi: files in a private directory**, not environment
   variables. Under systemd that is `LoadCredential=`: files under
@@ -694,8 +768,10 @@ token, the back-office password. The database holds none, ever.
   neither knows nor edits them. Basic auth over the LAN address only; TLS is
   a one-option addition if ever wanted. Inbound Telegram commands are
   accepted only from the configured chat ID.
-- **Cloud tokens.** Tuya's per-session access token lives in the client's
-  memory; the MCP key is static. Nothing token-like is written to disk.
+- **Cloud tokens.** Tuya's per-session access token and the Aqara MCP key
+  both live in the client's memory: the Aqara key is minted by signing in
+  at start and re-minted when the service rejects it. Nothing token-like is
+  written to disk; a restart costs one sign-in.
 
 ## Logging
 
@@ -1077,12 +1153,15 @@ An appliance nobody watches. The rules:
 
 - **Clock sanity before history.** The Pi has no RTC; until NTP syncs,
   `time.Now()` may be 1970. The unit has `After=time-sync.target`, and the
-  core additionally refuses to persist or journal anything while the clock
-  is older than the build time — readings are applied to the State but not
-  written.
+  core additionally refuses to persist, journal or prune anything while the
+  clock reads earlier than the binary's own modification time (the core
+  module's `clockFloor`: a build cannot be older than itself) — readings
+  are applied to the State but not written, with one warning.
 - **Restore, then poll.** State is seeded from the last stored point of
-  every series and the active alerts, so the first frame after a reboot is
-  the last known truth with a "restored, polling…" note, not a blank.
+  every series (and, from stage 4, the active alerts), so the first frame
+  after a reboot is the last known truth with a "restored…" stamp in the
+  header instead of "updated", until the first live batch replaces the
+  picture.
 - **Supervisor-agnostic liveness.** The unit is `Type=notify`: the
   application reports `READY=1` once every module started, `STOPPING=1` on
   shutdown, and feeds `WATCHDOG=1` at half of `WatchdogSec` through
@@ -1112,7 +1191,12 @@ An appliance nobody watches. The rules:
   from the State.
 - **Flags**: `-config`, `-check` (load and validate the config, resolve
   secrets, build every instance, exit 0/1 — run it before every restart),
-  `-once`, `-version` (set with `-ldflags -X`), later `-preview`.
+  `-once`, `-version` (set with `-ldflags -X`), later `-preview`. `-check`
+  touches nothing outside the process: `container.Check` is set, and a
+  module whose singleton would create a file or open hardware validates
+  instead — the storage module verifies the database directory exists and
+  migrates an in-memory database, so `sudo domovoi -check` leaves no
+  root-owned file for the service user to trip over.
 - **Release**: `GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build`, `scp` the
   binary and the unit file, `domovoi -check`, `systemctl restart` (the Pi
   path); `docker build` (multi-arch, `FROM scratch`) + `docker compose up

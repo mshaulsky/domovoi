@@ -16,8 +16,10 @@ type State struct {
 	mu         sync.RWMutex
 	devices    map[model.DeviceID]model.Device
 	readings   map[model.DeviceID]map[model.Metric]model.Reading
+	observed   map[series]observation
 	health     map[string]Health
 	staleAfter map[string]time.Duration
+	restored   bool // seeded from storage and not yet refreshed by a live batch
 }
 
 // Health is the record of a source's last outcomes.
@@ -42,6 +44,7 @@ type Snapshot struct {
 	Devices    []model.Device // sorted by room, then name
 	Readings   map[model.DeviceID]map[model.Metric]model.Reading
 	Health     map[string]Health
+	Restored   bool // the picture comes from storage; no source has delivered since start
 	staleAfter map[string]time.Duration
 }
 
@@ -49,17 +52,34 @@ type Snapshot struct {
 const (
 	// DefaultStaleAfter applies to sources nobody configured.
 	DefaultStaleAfter = 15 * time.Minute
-	// DeviceStaleAfter is how long a device may stay silent before it counts
-	// as stale even though its source is healthy: a cloud keeps echoing the
-	// last values of a sensor that stopped reporting.
-	DeviceStaleAfter = 2 * time.Hour
+	// DeviceStaleAfter is how long a device may show no sign of life — no
+	// value change, no network event — before it counts as stale even
+	// though its source is healthy: a cloud keeps echoing the last values
+	// of a sensor that stopped reporting. Three hours, because a quiet room
+	// can hold the same reading for a while.
+	DeviceStaleAfter = 3 * time.Hour
 )
+
+// series identifies one metric of one device.
+type series struct {
+	device model.DeviceID
+	metric model.Metric
+}
+
+// observation is what the state remembers about a series besides its held
+// reading: the last batch that carried it and the newest stamp its source
+// has ever given it. A restored series has neither.
+type observation struct {
+	at     time.Time
+	vendor time.Time
+}
 
 // New returns an empty state.
 func New() *State {
 	return &State{
 		devices:    map[model.DeviceID]model.Device{},
 		readings:   map[model.DeviceID]map[model.Metric]model.Reading{},
+		observed:   map[series]observation{},
 		health:     map[string]Health{},
 		staleAfter: map[string]time.Duration{},
 	}
@@ -86,13 +106,13 @@ func (s *State) ApplyDevices(devices []model.Device) {
 	s.applyDevices(devices)
 }
 
-// ApplyReadings merges readings and reports the ones whose value changed.
-// A reading older than the one held is ignored; an equal value only
-// refreshes the observation time.
+// ApplyReadings merges readings on their own stamps and reports the ones
+// whose value changed. There is no batch moment, so nothing is re-stamped:
+// sources go through Apply, this is for seeding a state by hand.
 func (s *State) ApplyReadings(readings []model.Reading) []Change {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.applyReadings(readings)
+	return s.applyReadings(readings, time.Time{})
 }
 
 // SetHealth records the outcome of a source's latest pass.
@@ -104,15 +124,42 @@ func (s *State) SetHealth(source string, err error, at time.Time) {
 
 // Apply records one source's successful pass atomically — its devices, its
 // readings and a healthy mark at `at` — under a single lock, so a snapshot
-// never sees a device without the readings that came with it. It reports
-// the changes like ApplyReadings.
-func (s *State) Apply(source string, devices []model.Device, readings []model.Reading, at time.Time) []Change {
+// never sees a device without the readings that came with it. A device list
+// is the source's whole inventory: its devices missing from it are retired,
+// and their IDs are returned next to the changes, which are reported like
+// ApplyReadings. An empty list is distrusted — a cloud answering nothing is
+// far likelier than a home with nothing in it — and retires no one.
+func (s *State) Apply(source string, devices []model.Device, readings []model.Reading, at time.Time) ([]Change, []model.DeviceID) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.applyDevices(devices)
-	changes := s.applyReadings(readings)
+	var retired []model.DeviceID
+	if len(devices) > 0 {
+		retired = s.retire(source, devices)
+	}
+	changes := s.applyReadings(readings, at)
 	s.setHealth(source, nil, at)
-	return changes
+	s.restored = false
+	return changes, retired
+}
+
+// Restore seeds the state from storage after a restart: devices and the
+// last known readings, applied without reporting changes (nothing
+// happened, it is remembered) and marked as restored until a live batch
+// replaces the picture.
+func (s *State) Restore(devices []model.Device, readings []model.Reading) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.applyDevices(devices)
+	for _, r := range readings {
+		byMetric, ok := s.readings[r.Device]
+		if !ok {
+			byMetric = map[model.Metric]model.Reading{}
+			s.readings[r.Device] = byMetric
+		}
+		byMetric[r.Metric] = r
+	}
+	s.restored = true
 }
 
 func (s *State) applyDevices(devices []model.Device) {
@@ -121,7 +168,61 @@ func (s *State) applyDevices(devices []model.Device) {
 	}
 }
 
-func (s *State) applyReadings(readings []model.Reading) []Change {
+// lastSeen is the latest moment a series' held value is known to have been
+// true: its last observation, or its own stamp when it was restored.
+func lastSeen(obs observation, held model.Reading) time.Time {
+	if obs.at.After(held.At) {
+		return obs.at
+	}
+	return held.At
+}
+
+// retire drops the source's devices that its listing no longer names,
+// readings included — a device removed from the account, re-paired under a
+// new ID, or seen through another account — and returns their IDs, sorted.
+// Their history stays in storage.
+func (s *State) retire(source string, listed []model.Device) []model.DeviceID {
+	keep := make(map[model.DeviceID]bool, len(listed))
+	for _, d := range listed {
+		keep[d.ID] = true
+	}
+	gone := map[model.DeviceID]bool{}
+	for id := range s.devices {
+		if id.Source() == source && !keep[id] {
+			gone[id] = true
+		}
+	}
+	for id := range s.readings {
+		if id.Source() == source && !keep[id] {
+			gone[id] = true
+		}
+	}
+	retired := make([]model.DeviceID, 0, len(gone))
+	for id := range gone {
+		delete(s.devices, id)
+		for metric := range s.readings[id] {
+			delete(s.observed, series{id, metric})
+		}
+		delete(s.readings, id)
+		retired = append(retired, id)
+	}
+	slices.Sort(retired)
+	return retired
+}
+
+// applyReadings merges readings carried by a batch at `at` (zero: no batch)
+// and reports the changes. A reading older than the newest stamp its source
+// ever gave the series is stale and ignored. The held value seen again only
+// moves the observation, and its stamp if the source's is newer — a network
+// event is a sign of life. A changed value keeps its stamp only when that is
+// newer than the last moment the previous value was known to hold (its last
+// observation, or its own stamp when restored); otherwise it takes the
+// batch time. Vendors like Tuya date a device by its last network event,
+// not its last report, so a stamp may stand still across several changes
+// or point into a past in which the old value was still being observed —
+// and the heartbeat row written at that observation must stay behind the
+// change.
+func (s *State) applyReadings(readings []model.Reading, at time.Time) []Change {
 	var changes []Change
 	for _, r := range readings {
 		byMetric, ok := s.readings[r.Device]
@@ -129,14 +230,30 @@ func (s *State) applyReadings(readings []model.Reading) []Change {
 			byMetric = map[model.Metric]model.Reading{}
 			s.readings[r.Device] = byMetric
 		}
+		key := series{r.Device, r.Metric}
+		obs := s.observed[key]
 		old, had := byMetric[r.Metric]
-		if had && r.At.Before(old.At) {
+		if had && r.At.Before(obs.vendor) {
 			continue
+		}
+		seen := lastSeen(obs, old) // before this batch counts as one
+		if r.At.After(obs.vendor) {
+			obs.vendor = r.At
+		}
+		if !at.IsZero() {
+			obs.at = at
+		}
+		s.observed[key] = obs
+		if had && old.Value.Equal(r.Value) {
+			if r.At.After(old.At) {
+				byMetric[r.Metric] = r
+			}
+			continue
+		}
+		if had && !r.At.After(seen) && at.After(r.At) {
+			r.At = at
 		}
 		byMetric[r.Metric] = r
-		if had && old.Value.Equal(r.Value) {
-			continue
-		}
 		c := Change{Device: r.Device, Metric: r.Metric, New: r}
 		if had {
 			prev := old
@@ -168,6 +285,7 @@ func (s *State) Snapshot(now time.Time) Snapshot {
 		Devices:    make([]model.Device, 0, len(s.devices)),
 		Readings:   make(map[model.DeviceID]map[model.Metric]model.Reading, len(s.readings)),
 		Health:     make(map[string]Health, len(s.health)),
+		Restored:   s.restored,
 		staleAfter: make(map[string]time.Duration, len(s.staleAfter)),
 	}
 	sn.Devices = slices.AppendSeq(sn.Devices, maps.Values(s.devices))

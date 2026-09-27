@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 	time "time"
 
+	model "github.com/mshaulsky/domovoi/internal/model"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -51,6 +52,87 @@ func (m *MockMetrics) IncEvent(kind string) {
 func (mr *MockMetricsMockRecorder) IncEvent(kind any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncEvent", reflect.TypeOf((*MockMetrics)(nil).IncEvent), kind)
+}
+
+// IncStoreError mocks base method.
+func (m *MockMetrics) IncStoreError(op string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "IncStoreError", op)
+}
+
+// IncStoreError indicates an expected call of IncStoreError.
+func (mr *MockMetricsMockRecorder) IncStoreError(op any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncStoreError", reflect.TypeOf((*MockMetrics)(nil).IncStoreError), op)
+}
+
+// MockStore is a mock of Store interface.
+type MockStore struct {
+	ctrl     *gomock.Controller
+	recorder *MockStoreMockRecorder
+	isgomock struct{}
+}
+
+// MockStoreMockRecorder is the mock recorder for MockStore.
+type MockStoreMockRecorder struct {
+	mock *MockStore
+}
+
+// NewMockStore creates a new mock instance.
+func NewMockStore(ctrl *gomock.Controller) *MockStore {
+	mock := &MockStore{ctrl: ctrl}
+	mock.recorder = &MockStoreMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockStore) EXPECT() *MockStoreMockRecorder {
+	return m.recorder
+}
+
+// Persist mocks base method.
+func (m *MockStore) Persist(ctx context.Context, devices []model.Device, readings []model.Reading, events []model.Event, at time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Persist", ctx, devices, readings, events, at)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Persist indicates an expected call of Persist.
+func (mr *MockStoreMockRecorder) Persist(ctx, devices, readings, events, at any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Persist", reflect.TypeOf((*MockStore)(nil).Persist), ctx, devices, readings, events, at)
+}
+
+// Prune mocks base method.
+func (m *MockStore) Prune(ctx context.Context, before time.Time) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Prune", ctx, before)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Prune indicates an expected call of Prune.
+func (mr *MockStoreMockRecorder) Prune(ctx, before any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Prune", reflect.TypeOf((*MockStore)(nil).Prune), ctx, before)
+}
+
+// Restore mocks base method.
+func (m *MockStore) Restore(ctx context.Context) ([]model.Device, []model.Reading, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Restore", ctx)
+	ret0, _ := ret[0].([]model.Device)
+	ret1, _ := ret[1].([]model.Reading)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// Restore indicates an expected call of Restore.
+func (mr *MockStoreMockRecorder) Restore(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Restore", reflect.TypeOf((*MockStore)(nil).Restore), ctx)
 }
 
 // MockPoller is a mock of Poller interface.

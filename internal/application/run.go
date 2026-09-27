@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -24,7 +25,7 @@ import (
 // Options is what the command line decides.
 type Options struct {
 	ConfigPath string
-	Check      bool               // load, resolve, build everything, exit
+	Check      bool               // load, resolve, build everything, touch nothing outside the process, exit
 	Once       bool               // poll every source once, render every display once, exit
 	Version    string             // for the log line
 	Lookup     config.Lookup      // secret resolution; nil = config.DefaultLookup
@@ -55,6 +56,7 @@ func Run(ctx context.Context, opts Options) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	c := container.New(func(err error) { cancel(err) })
+	c.Check = opts.Check
 	c.Config.Set(&cfg)
 	c.Logger.Set(log)
 	c.Metrics.Set(metrics.New())
@@ -78,13 +80,16 @@ func Run(ctx context.Context, opts Options) error {
 	case opts.Check:
 		log.Info("configuration OK", "sources", len(cfg.Sources), "displays", len(cfg.Displays),
 			"source_kinds", c.Sources.Kinds(), "display_kinds", c.Displays.Kinds(), "scenes", c.Scenes.Kinds())
+		stopAll(mods, log, StopTimeout) // nothing started, but Register opened things
 		return nil
 	case opts.Once:
 		co, err := c.Core.Get()
 		if err != nil {
 			return err
 		}
-		return co.Once(ctx)
+		err = co.Once(ctx)
+		stopAll(mods, log, StopTimeout)
+		return err
 	}
 
 	stopTimeout := stopTimeoutFor(displays)
@@ -148,6 +153,7 @@ type wiring struct {
 	metrics *metrics.Registry
 	state   *state.State
 	core    *core.Core
+	history render.History // nil without a storage module
 }
 
 func newWiring(c *container.Container, cfg config.Config) (wiring, error) {
@@ -167,7 +173,15 @@ func newWiring(c *container.Container, cfg config.Config) (wiring, error) {
 	if err != nil {
 		return wiring{}, err
 	}
-	return wiring{c: c, cfg: cfg, log: log, metrics: m, state: st, core: co}, nil
+	w := wiring{c: c, cfg: cfg, log: log, metrics: m, state: st, core: co}
+	switch s, err := c.Store.Get(); {
+	case err == nil:
+		w.history = s
+	case errors.Is(err, container.ErrNotProvided):
+	default:
+		return wiring{}, err
+	}
+	return w, nil
 }
 
 // sources builds a source and its poller per section. It returns the start
@@ -219,7 +233,7 @@ func (w wiring) displays(grace time.Duration) ([]display.Display, error) {
 			return displays, fmt.Errorf("display %s: %w", dc.Name, err)
 		}
 		cfg := render.Config{Name: dc.Name, Tick: dc.Tick, FullEvery: dc.FullEvery, StartGrace: grace}
-		co, err := render.New(cfg, disp, scenes, w.state, render.NewFixedLocale(bundle, w.cfg.Timezone), w.log, w.metrics)
+		co, err := render.New(cfg, disp, scenes, w.state, render.NewFixedLocale(bundle, w.cfg.Timezone), w.history, w.log, w.metrics)
 		if err != nil {
 			return displays, err
 		}
@@ -251,7 +265,9 @@ func startAll(ctx context.Context, mods []container.Module, log *slog.Logger) ([
 	return started, nil
 }
 
-// stopAll stops modules bottom-up within timeout, logging failures.
+// stopAll stops modules bottom-up within timeout, logging failures. It is
+// also called for modules that never started: a module releases in Stop
+// what it opened in Register, the database above all.
 func stopAll(started []container.Module, log *slog.Logger, timeout time.Duration) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()

@@ -11,7 +11,7 @@ func TestEnabled(t *testing.T) {
 		}
 		seen[m.Name()] = true
 	}
-	for _, want := range []string{"tuya", "pngfile", "scenes", "core"} {
+	for _, want := range []string{"tuya", "aqara", "weather", "pngfile", "scenes", "storage", "core"} {
 		if !seen[want] {
 			t.Errorf("module %q missing", want)
 		}

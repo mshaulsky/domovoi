@@ -139,3 +139,9 @@ func TestRegistryHandler(t *testing.T) {
 		"# HELP domovoi_polls_total Polls of a source by result.",
 		`domovoi_polls_total{result="success",source="tuya"} 1`)
 }
+
+func TestRegistryIncStoreError(t *testing.T) {
+	r := New()
+	r.IncStoreError("persist")
+	assertLines(t, exposition(t, r), `domovoi_store_errors_total{op="persist"} 1`)
+}

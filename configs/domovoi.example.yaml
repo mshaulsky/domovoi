@@ -2,7 +2,7 @@
 # from $CREDENTIALS_DIRECTORY/NAME (systemd LoadCredential=), then
 # /run/secrets/NAME (Docker Compose), then the environment variable NAME.
 
-timezone: Asia/Almaty   # IANA name; defaults to the system zone
+timezone: Europe/Moscow # IANA name; defaults to the system zone
 language: ru            # en or ru; a display may override it
 
 sources:
@@ -13,6 +13,21 @@ sources:
     access_id: ${TUYA_ACCESS_ID}
     access_key: ${TUYA_ACCESS_KEY}
     region: eu          # eu, us, cn, in
+  - kind: aqara
+    interval: 90s
+    username: ${AQARA_USERNAME}         # the account the source signs in with; keys from the login page expire
+    password_md5: ${AQARA_PASSWORD_MD5} # printf %s "$password" | md5sum — the service only ever sees the MD5
+    region: RU                          # the account's region: EU, RU (incl. Kazakhstan), US, CN, KR or SG
+    # api_key: ${AQARA_MCP_KEY}         # a key from agent.aqara.com/login instead of, or until it expires before, signing in
+  - kind: weather       # Open-Meteo, no key; one device "weather:home" for the outside tile
+    interval: 20m
+    latitude: 43.24
+    longitude: 76.93
+
+storage:
+  path: domovoi.db      # relative to the working directory: /var/lib/domovoi under systemd
+  # retention: 2160h    # 90 days of readings and events
+  # heartbeat: 1h       # an unchanged series still gets a row this often
 
 displays:
   - kind: pngfile

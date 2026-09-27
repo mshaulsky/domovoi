@@ -26,6 +26,7 @@ type View struct {
 	Icons    map[model.DeviceID]icon.Icon // overrides from settings
 	Note     string                       // the advisor's line, when there is one
 	Starting bool                         // no source has delivered anything yet
+	Restored bool                         // the picture comes from storage, no source has delivered since start
 }
 
 // SourceStatus is one source's freshness for the header.
