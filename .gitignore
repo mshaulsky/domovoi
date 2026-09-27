@@ -1,0 +1,14 @@
+# Compiled binaries
+/domovoi
+/domovoi-arm64
+*.exe
+*.out
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Local credentials and local configs
+.env
+/domovoi.yaml
+/frame.png

@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.12.2
+          args: --build-tags integration
+
+      - name: Check generated code and module files are current
+        run: |
+          go generate ./...
+          go mod tidy
+          git diff --exit-code
+
+      - name: Unit tests
+        run: go test -race ./...
+
+      - name: Integration tests
+        run: go test -race -tags integration ./...
+
+      - name: Build
+        run: CGO_ENABLED=0 go build ./...
+
+      - name: Cross-compile for Raspberry Pi (arm64)
+        run: GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build ./...

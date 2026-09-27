@@ -1,0 +1,27 @@
+# domovoi configuration. Secrets are never written here: ${NAME} is resolved
+# from $CREDENTIALS_DIRECTORY/NAME (systemd LoadCredential=), then
+# /run/secrets/NAME (Docker Compose), then the environment variable NAME.
+
+timezone: Asia/Almaty   # IANA name; defaults to the system zone
+language: ru            # en or ru; a display may override it
+
+sources:
+  - kind: tuya
+    # name: tuya        # defaults to the kind; prefixes every device ID, never rename
+    interval: 60s
+    # stale_after: 5m   # defaults to 3× interval, at least 5 min
+    access_id: ${TUYA_ACCESS_ID}
+    access_key: ${TUYA_ACCESS_KEY}
+    region: eu          # eu, us, cn, in
+
+displays:
+  - kind: pngfile
+    name: preview
+    path: ./frame.png   # relative to the working directory: /var/lib/domovoi under systemd
+    # width: 800
+    # height: 480
+    # mono: false
+    scenes: [overview]
+    tick: 5m            # render cadence
+    full_every: 1h      # redraw an unchanged frame at least this often
+    # language: en

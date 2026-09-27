@@ -1,0 +1,37 @@
+# /etc/systemd/system/domovoi.service
+#
+#   sudo useradd --system --home /var/lib/domovoi --groups spi,gpio domovoi
+#   sudo install -m 600 /dev/stdin /etc/credstore/TUYA_ACCESS_ID  <<< "$TUYA_ACCESS_ID"
+#   sudo install -m 600 /dev/stdin /etc/credstore/TUYA_ACCESS_KEY <<< "$TUYA_ACCESS_KEY"
+#   (the file names match the ${NAME} placeholders, so -check below finds them too)
+#   sudo install -m 755 domovoi-arm64 /usr/local/bin/domovoi
+#   sudo install -m 644 domovoi.yaml /etc/domovoi.yaml
+#   sudo env CREDENTIALS_DIRECTORY=/etc/credstore domovoi -config /etc/domovoi.yaml -check
+#   sudo systemctl enable systemd-time-wait-sync.service   # so time-sync.target means a synced clock
+#   sudo systemctl enable --now domovoi
+
+[Unit]
+Description=domovoi smart-home dashboard
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
+
+[Service]
+Type=notify
+User=domovoi
+Group=domovoi
+WorkingDirectory=/var/lib/domovoi
+ExecStart=/usr/local/bin/domovoi -config /etc/domovoi.yaml
+Restart=always
+RestartSec=10
+# The binary reports READY=1 and pings WATCHDOG=1 at half this interval.
+WatchdogSec=120
+LoadCredential=TUYA_ACCESS_ID:/etc/credstore/TUYA_ACCESS_ID
+LoadCredential=TUYA_ACCESS_KEY:/etc/credstore/TUYA_ACCESS_KEY
+StateDirectory=domovoi
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
