@@ -25,6 +25,7 @@ func TestModeString(t *testing.T) {
 		{name: "full", mode: ModeFull, want: "full"},
 		{name: "fast", mode: ModeFast, want: "fast"},
 		{name: "partial", mode: ModePartial, want: "partial"},
+		{name: "wash", mode: ModeWash, want: "wash"},
 		{name: "unknown", mode: Mode(7), want: "unknown"},
 	}
 	for _, tt := range tests {

@@ -78,8 +78,19 @@ func Run(ctx context.Context, opts Options) error {
 
 	switch {
 	case opts.Check:
-		log.Info("configuration OK", "sources", len(cfg.Sources), "displays", len(cfg.Displays),
-			"source_kinds", c.Sources.Kinds(), "display_kinds", c.Displays.Kinds(), "scenes", c.Scenes.Kinds())
+		log.Info(
+			"configuration OK",
+			"sources",
+			len(cfg.Sources),
+			"displays",
+			len(cfg.Displays),
+			"source_kinds",
+			c.Sources.Kinds(),
+			"display_kinds",
+			c.Displays.Kinds(),
+			"scenes",
+			c.Scenes.Kinds(),
+		)
 		stopAll(mods, log, StopTimeout) // nothing started, but Register opened things
 		return nil
 	case opts.Once:
@@ -232,9 +243,25 @@ func (w wiring) displays(grace time.Duration) ([]display.Display, error) {
 		if err != nil {
 			return displays, fmt.Errorf("display %s: %w", dc.Name, err)
 		}
-		cfg := render.Config{Name: dc.Name, Tick: dc.Tick, FullEvery: dc.FullEvery, StartGrace: grace}
+		policy, err := render.NewPolicy(render.PolicyConfig{
+			Tick:            dc.Tick,
+			FullEvery:       dc.FullEvery,
+			MinFullInterval: dc.MinFullInterval,
+			MaxPartials:     dc.MaxPartials,
+			Fast:            dc.Fast,
+			Quiet: render.Quiet{
+				From: dc.Quiet.From,
+				To:   dc.Quiet.To,
+				Tick: dc.Quiet.Tick,
+				Wash: dc.Quiet.Wash,
+			},
+		})
+		if err != nil {
+			return displays, fmt.Errorf("display %s: %w", dc.Name, err)
+		}
 		co, err := render.New(
-			cfg,
+			render.Config{Name: dc.Name, StartGrace: grace},
+			policy,
 			disp,
 			scenes,
 			w.state,

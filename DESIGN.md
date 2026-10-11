@@ -24,8 +24,9 @@ Module `github.com/mshaulsky/domovoi`, binary `domovoi`.
 3. **Ambient, not realtime.** Full colour refresh costs ~19 s, partial mono
    ~1.5 s, and the panel should not see a full refresh more often than every
    ~3 min. The **refresh budget** is a product requirement, not a side effect
-   of timings: one render per tick (default 5 min), one full refresh per hour,
-   and an out-of-band render only when an alert changes. Scenes never know
+   of timings: one render per tick (default 1 min, monochrome partial
+   updates; 5 min at night), one colour refresh per hour, and an
+   out-of-band render only when an alert changes. Scenes never know
    how a frame reaches the glass.
 4. **Red is for alerts.** Alerts are first-class: rules produce alert state,
    which drives the red plane, forces a colour refresh and fans out to
@@ -872,6 +873,7 @@ type Surface struct {
     Bounds  image.Rectangle
     Palette color.Palette // e.g. white, black, red; mono panels: white, black
     Partial bool          // supports windowed updates (mono only on our panel)
+    WindowAlign int       // a partial window's x edges fall on multiples of this; 0 = any (our panel: 8)
     FullRefresh time.Duration // for scheduling and logs
 }
 
@@ -879,7 +881,7 @@ type Surface struct {
 type Frame struct {
     Image  *image.Paletted
     Window image.Rectangle // zero = whole frame
-    Mode   Mode            // Full, Fast, Partial
+    Mode   Mode            // Full, Fast, Partial, Wash
 }
 
 type Display interface {
@@ -916,39 +918,81 @@ seconds (30 s at minimum), so a slow cloud does not cost a "starting" frame
 that the first answer would replace a moment later.
 
 **Rendering is tick-driven, not change-driven.** Each coordinator renders
-on a fixed tick (`tick`, default 5 min, aligned to the wall clock) and
+on a fixed tick (`tick`, default 1 min, aligned to the wall clock) and
 otherwise only when an alert transition arrives — the single out-of-band
 trigger. Readings arriving between ticks wait for the next one. This is what
 makes the refresh budget hold: two sources polling at different phases, or a
 clock widget, cannot produce two flickers a minute. The time in the header
-is therefore a freshness stamp ("updated 12:05"), not a clock: it shows the
-tick's time, never seconds. A real minute clock is possible with `tick: 1m`
-— the policy then runs a monochrome partial update of the changed window
-each minute (~2 s of local flicker, 1 440 times a day) and a full refresh
-hourly; whether that feels acceptable is decided on the real panel in
-stage 3, the default stays 5 min.
+is the tick's time, never seconds. With the default one-minute tick it is a
+minute clock: the header changes every tick and the policy sends it as a
+monochrome partial update of the changed window (~2 s of local flicker),
+with a colour refresh hourly. Whether that feels acceptable is checked on
+the real panel; `tick: 5m` turns the header back into a freshness stamp.
 
-On each render the mode is decided from the diff between the frame on the
-glass and the new frame:
+**The policy** (`render.Policy`, `policy.go`) is a pure decision function
+with its own bookkeeping. It has its own config, `render.PolicyConfig`: the
+tick and the refresh keys (`full_every`, `min_full_interval`,
+`max_partials`, `fast`, `quiet`), validated by `render.NewPolicy`. The
+application glue builds it and hands it to `render.New` ready-made, next to
+the coordinator's own `render.Config` (name and start grace). A decision takes the frame on the glass (nil when
+unknown), the new frame, the `Surface`, the time (in the display's zone) and
+whether the render is urgent (an urgent alert transition — nothing sets it
+before stage 4), and answers a `Decision`: the `Mode`, the `Window` of a
+partial update, `Skip` when nothing is sent, and a short `Reason` for the
+log. The coordinator logs every shown frame at Info (`frame shown` with
+mode, reason, window and time taken), skips at Debug, and counts renders
+per mode. The rules, in order:
 
-- nothing changed → no update;
-- red pixels changed, or the display has no partial mode, or the last full
-  refresh is older than `full_every` (default 1 h), or more than `max_partials`
-  (default 12) since the last full → **Full** (or **Fast** when the change is
-  not an alert and fast mode is allowed);
-- otherwise → **Partial** on the bounding box of changed pixels, aligned as
-  the driver requires, and only if no red lies inside the window (red cannot
-  be erased by a partial update — panel fact);
-- never two fulls closer than `min_full_interval` (3 min) unless an urgent
-  alert appeared — alerts pre-empt the cadence;
-- a failed `Show` leaves the glass in an unknown state: the coordinator
-  forgets the previous frame and the next update is **Full**;
-- **quiet hours** (night): a longer tick, no fast refreshes, one full clear
-  cycle at a configured hour to wash out ghosting.
+- glass unknown (first frame, after a failed `Show` or a `Refresh`) →
+  **Full**, at once: nothing on the glass is worth protecting;
+- the nightly **wash** is due → **Wash** (below);
+- nothing changed and the last colour refresh is younger than `full_every`
+  → no update;
+- a **colour refresh** is needed when red pixels changed (red is the
+  accent, `display.Red`), or the last colour refresh is older than
+  `full_every` (an unchanged frame is refreshed that often too), or the
+  display has no partial mode, or `max_partials` partial updates were sent
+  since the last colour refresh;
+- otherwise → **Partial** on the bounding box of the changed pixels, grown
+  horizontally to multiples of `Surface.WindowAlign` (8 on our panel), and
+  only if neither frame has red inside that window — a partial update is
+  monochrome and can neither draw nor erase red (panel fact); red inside →
+  a colour refresh;
+- a colour refresh is **Full** when urgent, in quiet hours or with
+  `fast: false`, else **Fast**;
+- never two colour refreshes (Full, Fast and Wash all count) closer than
+  `min_full_interval` unless urgent: the decision is a skip ("too soon")
+  and the next tick tries again; a wash that falls too close is deferred
+  the same way while the frame is decided as on any other tick. The
+  spacing protects a panel, so it applies only to a surface with a
+  `FullRefresh` time: `pngfile` (and `httpview` later) refresh instantly,
+  declare partial support and get every frame, which also makes their
+  decisions mirror a panel's;
+- **quiet hours** (`quiet.from`–`quiet.to`, local wall clock, may cross
+  midnight; `from` equal to `to` switches them off): the tick is
+  `quiet.tick`, there are no Fast refreshes, and once a night, at the first
+  render at or after `quiet.wash` (a time inside the quiet hours), the frame
+  is sent as `display.ModeWash` — a full clear cycle followed by a full
+  refresh, washing out the ghosting partial updates leave. An urgent render
+  does not wash; the next tick does. Backends without ghosting (pngfile)
+  treat Wash as Full.
 
-The policy is pure — inputs are the two frames, the surface, the clock and
-the counters — and unit-tested against synthetic frames; the panel timings
-only tune its defaults.
+The policy keeps the time of the last colour refresh, the partial updates
+since then and the night of the last wash; the coordinator updates it with
+`Shown(decision, at)` after a successful `Show` and `Failed()` after a
+failed one, and asks `Tick(now)` for the cadence when it schedules the next
+tick. There is no clock inside — every call takes the time — so it is
+unit-tested against synthetic paletted frames.
+
+Defaults, the user's decisions: `tick: 1m`, `full_every: 1h`,
+`min_full_interval: 3m`, `max_partials: 60`, `fast: true`,
+`quiet: {from: "22:00", to: "08:00", tick: 5m, wash: "04:00"}`.
+`max_partials` is 60 rather than a dozen because with a one-minute tick the
+header changes every minute: a lower cap would force a colour flicker
+before `full_every` does, and the hourly colour refresh already bounds the
+ghosting. The config rejects `min_full_interval` above `full_every`, a wash
+outside the quiet hours and times not written as `HH:MM`; the panel's
+timings only tune these defaults.
 
 ## Scenes (`internal/scene`)
 
@@ -1062,8 +1106,9 @@ displays:
     spi: /dev/spidev0.0
     pins: {dc: GPIO25, rst: GPIO17, busy: GPIO24}
     scenes: [overview, climate]
-    tick: 5m
+    tick: 1m
     full_every: 1h
+    quiet: {from: "22:00", to: "08:00", tick: 5m, wash: "04:00"}
   - kind: httpview
     scenes: [overview]
 ```
@@ -1171,9 +1216,10 @@ An appliance nobody watches. The rules:
   `coreos/go-systemd/v22/daemon` (no-ops without `NOTIFY_SOCKET`, so Docker
   and `-once` are unaffected). Stage 3 adds the check itself: a goroutine
   verifies that the core loop and every render coordinator have made
-  progress within `2 × tick`, gates the watchdog ping on it, and exits
-  non-zero without systemd — whatever supervises the process restarts it,
-  systemd (`Restart=always`) or Docker (`restart: unless-stopped`) alike.
+  progress within `2 × tick` (the longer quiet tick at night), gates the
+  watchdog ping on it, and exits non-zero without systemd — whatever
+  supervises the process restarts it, systemd (`Restart=always`) or Docker
+  (`restart: unless-stopped`) alike.
 - **Two packagings, one binary.** `deploy/systemd/domovoi.service`
   (`Type=notify`, `Restart=always`, `WatchdogSec=120`,
   `WorkingDirectory=/var/lib/domovoi`, `LoadCredential=` lines,

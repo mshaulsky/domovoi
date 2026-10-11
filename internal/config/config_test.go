@@ -79,8 +79,19 @@ func TestParse(t *testing.T) {
 					t.Errorf("language/timezone = %q/%v, want en/Local", cfg.Language, cfg.Timezone)
 				}
 				d := cfg.Displays[0]
-				if d.Name != "pngfile" || d.Tick != 5*time.Minute || d.FullEvery != time.Hour || d.Language != "en" {
+				if d.Name != "pngfile" || d.Tick != time.Minute || d.FullEvery != time.Hour || d.Language != "en" {
 					t.Errorf("display defaults = %+v", d)
+				}
+				if d.MinFullInterval != 3*time.Minute || d.MaxPartials != 60 || !d.Fast {
+					t.Errorf("refresh defaults = %+v", d)
+				}
+				if want := (QuietSection{
+					From: 22 * time.Hour,
+					To:   8 * time.Hour,
+					Tick: 5 * time.Minute,
+					Wash: 4 * time.Hour,
+				}); d.Quiet != want {
+					t.Errorf("quiet defaults = %+v, want %+v", d.Quiet, want)
 				}
 				if len(d.Scenes) != 1 || d.Scenes[0] != "overview" {
 					t.Errorf("scenes = %v, want [overview]", d.Scenes)
@@ -110,6 +121,10 @@ displays:
     scenes: [overview, climate]
     tick: 1m
     full_every: 30m
+    min_full_interval: 5m
+    max_partials: 0
+    fast: false
+    quiet: {from: "23:30", to: 06:00, tick: 10m, wash: "01:15"}
     language: en
     spi: /dev/spidev0.0
 `,
@@ -141,6 +156,23 @@ displays:
 				if d.Name != "hall" || d.Tick != time.Minute || d.FullEvery != 30*time.Minute ||
 					d.Language != "en" || len(d.Scenes) != 2 {
 					t.Errorf("display = %+v", d)
+				}
+				if d.MinFullInterval != 5*time.Minute || d.MaxPartials != 0 || d.Fast {
+					t.Errorf("refresh = %+v", d)
+				}
+				if want := (QuietSection{
+					From: 23*time.Hour + 30*time.Minute,
+					To:   6 * time.Hour,
+					Tick: 10 * time.Minute,
+					Wash: time.Hour + 15*time.Minute,
+				}); d.Quiet != want {
+					t.Errorf("quiet = %+v, want %+v", d.Quiet, want)
+				}
+				var dopts struct {
+					SPI string `yaml:"spi"`
+				}
+				if err := d.Options.Decode(&dopts); err != nil || dopts.SPI != "/dev/spidev0.0" {
+					t.Errorf("display options = %+v, %v", dopts, err)
 				}
 			},
 		},
@@ -235,6 +267,46 @@ displays:
 			name:    "invalid yaml",
 			yaml:    "displays: [",
 			wantErr: "parse yaml",
+		},
+		{
+			name:    "negative full_every",
+			yaml:    "displays:\n  - kind: pngfile\n    full_every: -1m\n",
+			wantErr: "must be positive",
+		},
+		{
+			name:    "negative quiet tick",
+			yaml:    "displays:\n  - kind: pngfile\n    quiet: {tick: -1m}\n",
+			wantErr: "must be positive",
+		},
+		{
+			name:    "min_full_interval above full_every",
+			yaml:    "displays:\n  - kind: pngfile\n    min_full_interval: 2h\n",
+			wantErr: "min_full_interval 2h0m0s exceeds full_every 1h0m0s",
+		},
+		{
+			name:    "negative max_partials",
+			yaml:    "displays:\n  - kind: pngfile\n    max_partials: -1\n",
+			wantErr: "max_partials must not be negative",
+		},
+		{
+			name:    "bad time of day",
+			yaml:    "displays:\n  - kind: pngfile\n    quiet: {from: '25:00'}\n",
+			wantErr: `displays[0]: quiet: from "25:00": want a time of day as HH:MM`,
+		},
+		{
+			name:    "wash outside quiet hours",
+			yaml:    "displays:\n  - kind: pngfile\n    quiet: {wash: '12:00'}\n",
+			wantErr: "quiet.wash 12:00 is outside the quiet hours 22:00–08:00",
+		},
+		{
+			name:    "wash at the end of quiet hours",
+			yaml:    "displays:\n  - kind: pngfile\n    quiet: {from: '01:00', to: '05:00', wash: '05:00'}\n",
+			wantErr: "quiet.wash 05:00 is outside",
+		},
+		{
+			name:    "unknown quiet key",
+			yaml:    "displays:\n  - kind: pngfile\n    quiet: {wash_at: '04:00'}\n",
+			wantErr: "field wash_at not found",
 		},
 	}
 	for _, tt := range tests {

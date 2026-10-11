@@ -49,7 +49,8 @@ func TestNew(t *testing.T) {
 				t.Fatal(err)
 			}
 			got := d.Surface()
-			if got.Bounds != tt.want.Bounds || len(got.Palette) != len(tt.want.Palette) || got.Partial {
+			if got.Bounds != tt.want.Bounds || len(got.Palette) != len(tt.want.Palette) ||
+				!got.Partial || got.FullRefresh != 0 {
 				t.Errorf("Surface() = %+v, want %+v", got, tt.want)
 			}
 		})

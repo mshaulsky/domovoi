@@ -86,7 +86,9 @@ is a complete, commented example. In short:
   kept (90 days), how often an unchanged value still gets a row (hourly).
 - `displays` — for now `pngfile`: the file, the size, monochrome or
   three-colour, the scenes to show, the render `tick` and how often an
-  unchanged frame is redrawn anyway.
+  unchanged frame is redrawn anyway, plus the refresh policy for e-ink
+  (spacing of colour refreshes, partial updates, fast mode, and quiet
+  hours with a longer tick and a nightly wash).
 
 Secrets are never written into the YAML. A `${NAME}` placeholder is resolved
 from the file `$CREDENTIALS_DIRECTORY/NAME` (systemd's `LoadCredential=`),

@@ -58,6 +58,9 @@ func New(cfg Config) (*Display, error) {
 		surface: display.Surface{
 			Bounds:  image.Rect(0, 0, cfg.Width, cfg.Height),
 			Palette: palette,
+			// A file takes any window, so the policy's decisions on it
+			// mirror a panel's; with no refresh time it is never "too soon".
+			Partial: true,
 		},
 	}, nil
 }
@@ -68,7 +71,9 @@ func (d *Display) Surface() display.Surface {
 }
 
 // Show writes the frame atomically: to a temporary file beside the target,
-// then renamed over it, so a reader never sees a half-written PNG.
+// then renamed over it, so a reader never sees a half-written PNG. Every
+// mode writes the whole frame: a partial window, a fast or a wash refresh
+// all end as Full would.
 func (d *Display) Show(_ context.Context, f display.Frame) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()

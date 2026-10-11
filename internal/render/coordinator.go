@@ -1,7 +1,6 @@
 package render
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -29,20 +28,19 @@ type Coordinator struct {
 
 	wake chan struct{}
 
-	busy sync.Mutex // one render at a time
+	busy   sync.Mutex // one render at a time; also guards policy
+	policy *Policy
 
-	mu       sync.Mutex // guards page, last, lastFull, gen
-	page     int
-	last     *image.Paletted // what is on the glass; nil = unknown
-	lastFull time.Time
-	gen      uint64 // bumped by Refresh, so a refresh during a render is not lost
+	mu   sync.Mutex // guards page, last, gen
+	page int
+	last *image.Paletted // what is on the glass; nil = unknown
+	gen  uint64          // bumped by Refresh, so a refresh during a render is not lost
 }
 
-// Config tunes a coordinator.
+// Config tunes a coordinator. The cadence and the refresh decisions are
+// the policy's, tuned by PolicyConfig.
 type Config struct {
 	Name       string        // the display's configured name
-	Tick       time.Duration // render cadence, aligned to the wall clock
-	FullEvery  time.Duration // an unchanged frame is still redrawn this often
 	StartGrace time.Duration // how long to wait for the first Wake before rendering anyway
 }
 
@@ -77,10 +75,11 @@ func NewFixedLocale(b *i18n.Bundle, loc *time.Location) FixedLocale {
 	return FixedLocale{bundle: b, location: loc}
 }
 
-// New validates the config and prepares the coordinator; nothing is drawn
-// until Run or Render.
+// New validates the config and the collaborators, the refresh policy among
+// them, and prepares the coordinator; nothing is drawn until Run or Render.
 func New(
 	cfg Config,
+	policy *Policy,
 	disp Display,
 	scenes []Scene,
 	st StateReader,
@@ -92,8 +91,8 @@ func New(
 	if cfg.Name == "" {
 		return nil, errors.New("render: display name is required")
 	}
-	if cfg.Tick <= 0 {
-		return nil, fmt.Errorf("render: %s: tick must be positive", cfg.Name)
+	if policy == nil {
+		return nil, fmt.Errorf("render: %s: policy is required", cfg.Name)
 	}
 	if len(scenes) == 0 {
 		return nil, fmt.Errorf("render: %s: at least one scene is required", cfg.Name)
@@ -117,6 +116,7 @@ func New(
 		log:     log.With("component", "render", "display", cfg.Name),
 		metrics: m,
 		wake:    make(chan struct{}, 1),
+		policy:  policy,
 	}, nil
 }
 
@@ -158,10 +158,10 @@ func (c *Coordinator) Run(ctx context.Context) error {
 	}
 }
 
-// Render draws the current page once and shows it if it changed or a full
-// refresh is due. The state lock is held only around the bookkeeping, never
-// across Show, which may take a panel's full refresh time — commands must
-// not wait for it.
+// Render draws the current page once and lets the policy decide whether
+// and how it reaches the glass. The state lock is held only around the
+// bookkeeping, never across Show, which may take a panel's full refresh
+// time — commands must not wait for it.
 func (c *Coordinator) Render(ctx context.Context) error {
 	c.busy.Lock()
 	defer c.busy.Unlock()
@@ -169,7 +169,7 @@ func (c *Coordinator) Render(ctx context.Context) error {
 
 	c.mu.Lock()
 	sc := c.scenes[c.page%len(c.scenes)]
-	last, lastFull, gen := c.last, c.lastFull, c.gen
+	last, gen := c.last, c.gen
 	c.mu.Unlock()
 
 	surface := c.disp.Surface()
@@ -177,27 +177,37 @@ func (c *Coordinator) Render(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("render %s/%s: %w", c.cfg.Name, sc.Name(), err)
 	}
-	if last != nil && bytes.Equal(img.Pix, last.Pix) && now.Sub(lastFull) < c.cfg.FullEvery {
-		c.log.Debug("frame unchanged, skipped")
+	// The policy reads the wall clock of the display's zone. Nothing
+	// produces urgent renders before alerts (stage 4).
+	local := now.In(c.locale.Location())
+	d := c.policy.Decide(last, img, surface, local, false)
+	if d.Skip {
+		c.log.Debug("frame skipped", "scene", sc.Name(), "reason", d.Reason)
 		return nil
 	}
-	frame := display.Frame{Image: img, Mode: display.ModeFull}
+	frame := display.Frame{Image: img, Window: d.Window, Mode: d.Mode}
 	if err := c.disp.Show(ctx, frame); err != nil {
-		c.forget()            // the glass is unknown either way
+		c.forget() // the glass is unknown either way
+		c.policy.Failed()
 		if ctx.Err() == nil { // a Show cut short by shutdown is not a display failure
 			c.metrics.IncRenderError(c.cfg.Name)
 		}
 		return fmt.Errorf("show %s: %w", c.cfg.Name, err)
 	}
+	c.policy.Shown(d, local)
 	c.mu.Lock()
 	if c.gen == gen { // no Refresh arrived meanwhile
-		c.last, c.lastFull = img, now
+		c.last = img
 	}
 	c.mu.Unlock()
 	took := time.Since(now)
 	c.metrics.IncRender(c.cfg.Name, frame.Mode.String())
 	c.metrics.ObserveRenderDuration(c.cfg.Name, took)
-	c.log.Info("frame shown", "scene", sc.Name(), "mode", frame.Mode, "took", took)
+	attrs := []any{"scene", sc.Name(), "mode", frame.Mode, "reason", d.Reason, "took", took}
+	if frame.Mode == display.ModePartial {
+		attrs = append(attrs, "window", frame.Window)
+	}
+	c.log.Info("frame shown", attrs...)
 	return nil
 }
 
@@ -304,9 +314,11 @@ func (c *Coordinator) enrich(ctx context.Context, v *scene.View) {
 }
 
 // untilNextTick returns the wait to the next tick boundary on the wall
-// clock, so several displays with the same tick render together.
+// clock, so several displays with the same tick render together. The
+// policy names the tick: longer in quiet hours.
 func (c *Coordinator) untilNextTick() time.Duration {
 	now := time.Now()
-	next := now.Truncate(c.cfg.Tick).Add(c.cfg.Tick)
+	tick := c.policy.Tick(now.In(c.locale.Location()))
+	next := now.Truncate(tick).Add(tick)
 	return next.Sub(now)
 }

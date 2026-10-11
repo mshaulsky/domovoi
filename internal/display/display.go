@@ -12,6 +12,7 @@ type Surface struct {
 	Bounds      image.Rectangle
 	Palette     color.Palette // e.g. white, black, red; mono panels: white, black
 	Partial     bool          // supports windowed updates
+	WindowAlign int           // a partial window's horizontal edges fall on multiples of this many pixels; 0 = any
 	FullRefresh time.Duration // how long a full refresh takes, for scheduling and logs
 }
 
@@ -42,6 +43,7 @@ const (
 	ModeFull    Mode = iota // full waveform, every colour
 	ModeFast                // shorter waveform, every colour
 	ModePartial             // windowed, monochrome on our panel
+	ModeWash                // a full clear cycle, then a full refresh: washes out ghosting
 )
 
 // The colours a three-colour e-ink panel can show. Palettes are built from
@@ -71,6 +73,8 @@ func (m Mode) String() string {
 		return "fast"
 	case ModePartial:
 		return "partial"
+	case ModeWash:
+		return "wash"
 	default:
 		return "unknown"
 	}

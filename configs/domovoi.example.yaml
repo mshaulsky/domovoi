@@ -37,6 +37,14 @@ displays:
     # height: 480
     # mono: false
     scenes: [overview]
-    tick: 5m            # render cadence
-    full_every: 1h      # redraw an unchanged frame at least this often
+    tick: 1m            # render cadence, aligned to the wall clock
+    full_every: 1h      # a colour refresh at least this often, even of an unchanged frame
+    # min_full_interval: 3m  # never two colour refreshes closer than this (urgent alerts excepted)
+    # max_partials: 60       # monochrome partial updates allowed between two colour refreshes
+    # fast: true             # colour refreshes use the fast waveform outside quiet hours
+    # quiet:                 # the night; from equal to to switches it off
+    #   from: "22:00"        # local wall clock, may cross midnight
+    #   to: "08:00"
+    #   tick: 5m             # render cadence inside the quiet hours; no fast refreshes there
+    #   wash: "04:00"        # once a night: a clear cycle and a full refresh against ghosting
     # language: en

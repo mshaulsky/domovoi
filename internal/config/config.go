@@ -2,12 +2,14 @@ package config
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"maps"
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,13 +43,27 @@ type SourceSection struct {
 
 // DisplaySection is one configured display instance.
 type DisplaySection struct {
-	Kind      string
-	Name      string // defaults to Kind; the handle commands address
-	Scenes    []string
-	Tick      time.Duration // render cadence
-	FullEvery time.Duration // at most this long between full refreshes
-	Language  string        // defaults to the global language
-	Options   Options
+	Kind            string
+	Name            string // defaults to Kind; the handle commands address
+	Scenes          []string
+	Tick            time.Duration // render cadence
+	FullEvery       time.Duration // at most this long between colour refreshes
+	MinFullInterval time.Duration // at least this long between colour refreshes, unless urgent
+	MaxPartials     int           // partial updates allowed between two colour refreshes
+	Fast            bool          // colour refreshes may use the fast waveform outside quiet hours
+	Quiet           QuietSection
+	Language        string // defaults to the global language
+	Options         Options
+}
+
+// QuietSection is a display's night: a longer tick, no fast refreshes and
+// one wash. Times of day are offsets from local midnight; From == To
+// switches quiet hours off.
+type QuietSection struct {
+	From time.Duration
+	To   time.Duration
+	Tick time.Duration
+	Wash time.Duration // inside [From, To)
 }
 
 // Options carries the keys of a section that the common head does not know.
@@ -59,10 +75,17 @@ type Options struct {
 
 // Defaults applied where the file is silent.
 const (
-	DefaultInterval  = time.Minute
-	DefaultTick      = 5 * time.Minute
-	DefaultFullEvery = time.Hour
-	DefaultLanguage  = "en"
+	DefaultInterval        = time.Minute
+	DefaultTick            = time.Minute
+	DefaultFullEvery       = time.Hour
+	DefaultMinFullInterval = 3 * time.Minute
+	DefaultMaxPartials     = 60 // a minute tick changes the header every minute: partials must outlast full_every
+	DefaultFast            = true
+	DefaultQuietFrom       = 22 * time.Hour
+	DefaultQuietTo         = 8 * time.Hour
+	DefaultQuietTick       = 5 * time.Minute
+	DefaultQuietWash       = 4 * time.Hour
+	DefaultLanguage        = "en"
 	// staleFactor times the interval, but never less than minStaleAfter.
 	staleFactor   = 3
 	minStaleAfter = 5 * time.Minute
@@ -79,7 +102,20 @@ var (
 	nameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 	sourceHead  = []string{"kind", "name", "interval", "stale_after"}
-	displayHead = []string{"kind", "name", "scenes", "tick", "full_every", "language"}
+	displayHead = []string{
+		"kind",
+		"name",
+		"scenes",
+		"tick",
+		"full_every",
+		"min_full_interval",
+		"max_partials",
+		"fast",
+		"quiet",
+		"language",
+	}
+	// clockRe is a wall-clock time of day, HH:MM.
+	clockRe = regexp.MustCompile(`^([01]\d|2[0-3]):([0-5]\d)$`)
 )
 
 // file is the YAML shape of the document.
@@ -111,12 +147,23 @@ type sourceHeadFields struct {
 }
 
 type displayHeadFields struct {
-	Kind      string        `yaml:"kind"`
-	Name      string        `yaml:"name"`
-	Scenes    []string      `yaml:"scenes"`
-	Tick      time.Duration `yaml:"tick"`
-	FullEvery time.Duration `yaml:"full_every"`
-	Language  string        `yaml:"language"`
+	Kind            string        `yaml:"kind"`
+	Name            string        `yaml:"name"`
+	Scenes          []string      `yaml:"scenes"`
+	Tick            time.Duration `yaml:"tick"`
+	FullEvery       time.Duration `yaml:"full_every"`
+	MinFullInterval time.Duration `yaml:"min_full_interval"`
+	MaxPartials     *int          `yaml:"max_partials"` // nil: default; 0 is a valid choice
+	Fast            *bool         `yaml:"fast"`
+	Quiet           quietFields   `yaml:"quiet"`
+	Language        string        `yaml:"language"`
+}
+
+type quietFields struct {
+	From string        `yaml:"from"`
+	To   string        `yaml:"to"`
+	Tick time.Duration `yaml:"tick"`
+	Wash string        `yaml:"wash"`
 }
 
 // Load reads and parses a configuration file.
@@ -240,14 +287,28 @@ func (s *section) display(language string) (DisplaySection, error) {
 	if err := decodeStrict(head, &h); err != nil {
 		return DisplaySection{}, err
 	}
+	quiet, err := h.Quiet.section()
+	if err != nil {
+		return DisplaySection{}, fmt.Errorf("quiet: %w", err)
+	}
 	d := DisplaySection{
-		Kind:      h.Kind,
-		Name:      h.Name,
-		Scenes:    h.Scenes,
-		Tick:      h.Tick,
-		FullEvery: h.FullEvery,
-		Language:  h.Language,
-		Options:   Options{node: rest},
+		Kind:            h.Kind,
+		Name:            h.Name,
+		Scenes:          h.Scenes,
+		Tick:            h.Tick,
+		FullEvery:       h.FullEvery,
+		MinFullInterval: cmp.Or(h.MinFullInterval, DefaultMinFullInterval),
+		MaxPartials:     DefaultMaxPartials,
+		Fast:            DefaultFast,
+		Quiet:           quiet,
+		Language:        h.Language,
+		Options:         Options{node: rest},
+	}
+	if h.MaxPartials != nil {
+		d.MaxPartials = *h.MaxPartials
+	}
+	if h.Fast != nil {
+		d.Fast = *h.Fast
 	}
 	if d.Name == "" {
 		d.Name = d.Kind
@@ -288,12 +349,37 @@ func (c Config) validate() error {
 		if err := validateHead("displays", i, d.Kind, d.Name, seen); err != nil {
 			return err
 		}
-		if d.Tick < 0 || d.FullEvery < 0 {
-			return fmt.Errorf("displays[%d] %s: tick and full_every must be positive", i, d.Name)
+		if err := d.validateRefresh(); err != nil {
+			return fmt.Errorf("displays[%d] %s: %w", i, d.Name, err)
 		}
 		if slices.Contains(d.Scenes, "") {
 			return fmt.Errorf("displays[%d] %s: empty scene name", i, d.Name)
 		}
+	}
+	return nil
+}
+
+// validateRefresh checks the refresh policy keys of a display.
+func (d DisplaySection) validateRefresh() error {
+	if d.Tick < 0 || d.FullEvery < 0 || d.MinFullInterval < 0 || d.Quiet.Tick < 0 {
+		return errors.New("tick, full_every, min_full_interval and quiet.tick must be positive")
+	}
+	if d.MinFullInterval > d.FullEvery {
+		return fmt.Errorf("min_full_interval %v exceeds full_every %v", d.MinFullInterval, d.FullEvery)
+	}
+	if d.MaxPartials < 0 {
+		return errors.New("max_partials must not be negative")
+	}
+	q := d.Quiet
+	if q.From == q.To {
+		return nil // no quiet hours
+	}
+	inside := q.From <= q.Wash && q.Wash < q.To
+	if q.From > q.To { // crosses midnight
+		inside = q.Wash >= q.From || q.Wash < q.To
+	}
+	if !inside {
+		return fmt.Errorf("quiet.wash %s is outside the quiet hours %s–%s", clock(q.Wash), clock(q.From), clock(q.To))
 	}
 	return nil
 }
@@ -374,6 +460,44 @@ func decodeStrict(src, out any) error {
 		return fmt.Errorf("decode: %w", err)
 	}
 	return nil
+}
+
+// section applies the defaults and parses the HH:MM times.
+func (q quietFields) section() (QuietSection, error) {
+	var (
+		s   = QuietSection{Tick: cmp.Or(q.Tick, DefaultQuietTick)}
+		err error
+	)
+	if s.From, err = parseClock("from", q.From, DefaultQuietFrom); err != nil {
+		return QuietSection{}, err
+	}
+	if s.To, err = parseClock("to", q.To, DefaultQuietTo); err != nil {
+		return QuietSection{}, err
+	}
+	if s.Wash, err = parseClock("wash", q.Wash, DefaultQuietWash); err != nil {
+		return QuietSection{}, err
+	}
+	return s, nil
+}
+
+// parseClock parses an HH:MM time of day into its offset from midnight; an
+// empty value is def.
+func parseClock(key, v string, def time.Duration) (time.Duration, error) {
+	if v == "" {
+		return def, nil
+	}
+	m := clockRe.FindStringSubmatch(v)
+	if m == nil {
+		return 0, fmt.Errorf("%s %q: want a time of day as HH:MM", key, v)
+	}
+	h, _ := strconv.Atoi(m[1])
+	mm, _ := strconv.Atoi(m[2])
+	return time.Duration(h)*time.Hour + time.Duration(mm)*time.Minute, nil
+}
+
+// clock formats an offset from midnight as HH:MM.
+func clock(d time.Duration) string {
+	return fmt.Sprintf("%02d:%02d", int(d/time.Hour), int(d%time.Hour/time.Minute))
 }
 
 func loadLocation(name string) (*time.Location, error) {

@@ -68,25 +68,35 @@ type deps struct {
 
 func newDeps(t *testing.T, sceneCount int) deps {
 	t.Helper()
+	return newDepsOn(t, testSurface, sceneCount)
+}
+
+// newDepsOn is newDeps for a display with the given surface.
+func newDepsOn(t *testing.T, s display.Surface, sceneCount int) deps {
+	t.Helper()
 	ctrl := gomock.NewController(t)
 	d := deps{ctrl: ctrl, disp: NewMockDisplay(ctrl), state: state.New(), metrics: quietMetrics(ctrl)}
-	d.disp.EXPECT().Surface().Return(testSurface).AnyTimes()
+	d.disp.EXPECT().Surface().Return(s).AnyTimes()
 	for i := range sceneCount {
 		d.scenes = append(d.scenes, sceneNamed(ctrl, "scene"+string(rune('a'+i))))
 	}
 	return d
 }
 
-func (d deps) coordinator(t *testing.T, cfg Config) *Coordinator {
+func (d deps) coordinator(t *testing.T, cfg Config, pc PolicyConfig) *Coordinator {
 	t.Helper()
 	if cfg.Name == "" {
 		cfg.Name = "hall"
 	}
-	if cfg.Tick == 0 {
-		cfg.Tick = 5 * time.Minute
+	if pc.Tick == 0 {
+		pc.Tick = 5 * time.Minute
 	}
-	if cfg.FullEvery == 0 {
-		cfg.FullEvery = time.Hour
+	if pc.FullEvery == 0 {
+		pc.FullEvery = time.Hour
+	}
+	policy, err := NewPolicy(pc)
+	if err != nil {
+		t.Fatal(err)
 	}
 	locale := d.locale
 	if locale == nil {
@@ -96,59 +106,94 @@ func (d deps) coordinator(t *testing.T, cfg Config) *Coordinator {
 	for i, sc := range d.scenes {
 		scenes[i] = sc
 	}
-	c, err := New(cfg, d.disp, scenes, d.state, locale, d.history, quiet, d.metrics)
+	c, err := New(cfg, policy, d.disp, scenes, d.state, locale, d.history, quiet, d.metrics)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return c
 }
 
+// policyConfig is the refresh policy of the real panel, without quiet hours.
+func policyConfig() PolicyConfig {
+	return PolicyConfig{MinFullInterval: 3 * time.Minute, MaxPartials: 60, Fast: true}
+}
+
+// expectShow expects one Show with the given mode and window, answering err.
+func expectShow(t *testing.T, d deps, mode display.Mode, window image.Rectangle, err error) *gomock.Call {
+	t.Helper()
+	return d.disp.EXPECT().Show(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, f display.Frame) error {
+		if f.Mode != mode || f.Window != window || f.Image == nil {
+			t.Errorf("Show(mode %v, window %v), want mode %v, window %v", f.Mode, f.Window, mode, window)
+		}
+		return err
+	})
+}
+
+// expectFrames makes the scene return the given frames, in order.
+func expectFrames(d deps, frames ...*image.Paletted) {
+	calls := make([]any, 0, len(frames))
+	for _, f := range frames {
+		calls = append(calls, d.scenes[0].EXPECT().Render(gomock.Any(), gomock.Any()).Return(f, nil))
+	}
+	gomock.InOrder(calls...)
+}
+
 func TestNew(t *testing.T) {
 	d := newDeps(t, 1)
 	english := NewFixedLocale(bundle(t), nil)
+	policy, err := NewPolicy(PolicyConfig{Tick: time.Minute, FullEvery: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
 		name    string
 		cfg     Config
+		policy  *Policy
 		scenes  int
 		locale  Locale
 		wantErr string
 	}{
 		{
 			name:   "valid",
-			cfg:    Config{Name: "hall", Tick: time.Minute},
+			cfg:    Config{Name: "hall"},
+			policy: policy,
 			scenes: 1,
 			locale: english,
 		},
 		{
 			name:    "name required",
-			cfg:     Config{Tick: time.Minute},
+			cfg:     Config{},
+			policy:  policy,
 			scenes:  1,
 			locale:  english,
 			wantErr: "name is required",
 		},
 		{
-			name:    "tick required",
+			name:    "policy required",
 			cfg:     Config{Name: "hall"},
 			scenes:  1,
 			locale:  english,
-			wantErr: "tick must be positive",
+			wantErr: "render: hall: policy is required",
 		},
 		{
 			name:    "scene required",
-			cfg:     Config{Name: "hall", Tick: time.Minute},
+			cfg:     Config{Name: "hall"},
+			policy:  policy,
 			scenes:  0,
 			locale:  english,
 			wantErr: "at least one scene",
 		},
 		{
 			name:    "locale required",
-			cfg:     Config{Name: "hall", Tick: time.Minute},
+			cfg:     Config{Name: "hall"},
+			policy:  policy,
 			scenes:  1,
 			wantErr: "locale is required",
 		},
 		{
 			name:    "bundle required",
-			cfg:     Config{Name: "hall", Tick: time.Minute},
+			cfg:     Config{Name: "hall"},
+			policy:  policy,
 			scenes:  1,
 			locale:  NewFixedLocale(nil, nil),
 			wantErr: "language bundle is required",
@@ -160,7 +205,7 @@ func TestNew(t *testing.T) {
 			for range tt.scenes {
 				scenes = append(scenes, d.scenes[0])
 			}
-			c, err := New(tt.cfg, d.disp, scenes, d.state, tt.locale, nil, quiet, d.metrics)
+			c, err := New(tt.cfg, tt.policy, d.disp, scenes, d.state, tt.locale, nil, quiet, d.metrics)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("error = %v, want containing %q", err, tt.wantErr)
@@ -179,15 +224,18 @@ func TestNew(t *testing.T) {
 
 func TestCoordinatorName(t *testing.T) {
 	d := newDeps(t, 1)
-	if got := d.coordinator(t, Config{Name: "kitchen"}).Name(); got != "kitchen" {
+	if got := d.coordinator(t, Config{Name: "kitchen"}, PolicyConfig{}).Name(); got != "kitchen" {
 		t.Errorf("Name() = %q", got)
 	}
 }
 
 func TestCoordinatorRender(t *testing.T) {
 	boom := errors.New("boom")
+	blank := paint(partialSurface)
 	tests := []struct {
 		name    string
+		surface display.Surface // zero: testSurface
+		policy  PolicyConfig    // zero: the helper's tick and full_every
 		setup   func(t *testing.T, d deps, c *Coordinator)
 		wantErr string
 	}{
@@ -239,6 +287,81 @@ func TestCoordinatorRender(t *testing.T) {
 			},
 		},
 		{
+			name:    "small black change is a partial",
+			surface: partialSurface,
+			policy:  policyConfig(),
+			setup: func(t *testing.T, d deps, c *Coordinator) {
+				expectFrames(d, blank, paint(partialSurface, dot{9, 1, black}))
+				gomock.InOrder(
+					expectShow(t, d, display.ModeFull, image.Rectangle{}, nil),
+					expectShow(t, d, display.ModePartial, image.Rect(8, 1, 16, 2), nil),
+				)
+				if err := c.Render(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				time.Sleep(time.Minute)
+			},
+		},
+		{
+			name:    "red change is a colour refresh",
+			surface: partialSurface,
+			policy:  policyConfig(),
+			setup: func(t *testing.T, d deps, c *Coordinator) {
+				expectFrames(d, blank, paint(partialSurface, dot{9, 1, red}))
+				gomock.InOrder(
+					expectShow(t, d, display.ModeFull, image.Rectangle{}, nil),
+					expectShow(t, d, display.ModeFast, image.Rectangle{}, nil),
+				)
+				if err := c.Render(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				time.Sleep(3 * time.Minute)
+			},
+		},
+		{
+			name:    "colour refresh too soon waits for a later tick",
+			surface: partialSurface,
+			policy:  policyConfig(),
+			setup: func(t *testing.T, d deps, c *Coordinator) {
+				changed := paint(partialSurface, dot{9, 1, red})
+				expectFrames(d, blank, changed, changed)
+				gomock.InOrder(
+					expectShow(t, d, display.ModeFull, image.Rectangle{}, nil),
+					expectShow(t, d, display.ModeFast, image.Rectangle{}, nil),
+				)
+				if err := c.Render(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				time.Sleep(time.Minute)
+				if err := c.Render(t.Context()); err != nil { // too soon: skipped
+					t.Fatal(err)
+				}
+				time.Sleep(2 * time.Minute)
+			},
+		},
+		{
+			name:    "after a failed show the next frame is full",
+			surface: partialSurface,
+			policy:  policyConfig(),
+			setup: func(t *testing.T, d deps, c *Coordinator) {
+				changed := paint(partialSurface, dot{9, 1, black})
+				expectFrames(d, blank, changed, changed)
+				gomock.InOrder(
+					expectShow(t, d, display.ModeFull, image.Rectangle{}, nil),
+					expectShow(t, d, display.ModePartial, image.Rect(8, 1, 16, 2), boom),
+					// a small change, but the glass is unknown
+					expectShow(t, d, display.ModeFull, image.Rectangle{}, nil),
+				)
+				if err := c.Render(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				time.Sleep(time.Minute)
+				if err := c.Render(t.Context()); !errors.Is(err, boom) {
+					t.Fatalf("second render = %v, want %v", err, boom)
+				}
+			},
+		},
+		{
 			name: "scene error",
 			setup: func(t *testing.T, d deps, c *Coordinator) {
 				d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).Return(nil, boom)
@@ -268,8 +391,12 @@ func TestCoordinatorRender(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				d := newDeps(t, 1)
-				c := d.coordinator(t, Config{})
+				s := tt.surface
+				if s.Bounds.Empty() {
+					s = testSurface
+				}
+				d := newDepsOn(t, s, 1)
+				c := d.coordinator(t, Config{}, tt.policy)
 				tt.setup(t, d, c)
 				err := c.Render(t.Context())
 				if tt.wantErr != "" {
@@ -319,7 +446,7 @@ func TestCoordinatorRenderView(t *testing.T) {
 				At:     now,
 			},
 		}, nil)
-		c := d.coordinator(t, Config{})
+		c := d.coordinator(t, Config{}, PolicyConfig{})
 		var got scene.View
 		d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).
 			DoAndReturn(func(_ display.Surface, v scene.View) (*image.Paletted, error) {
@@ -389,7 +516,7 @@ func TestCoordinatorRenderStarting(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				d := newDeps(t, 1)
 				tt.setup(d.state, time.Now())
-				c := d.coordinator(t, Config{})
+				c := d.coordinator(t, Config{}, PolicyConfig{})
 				var got scene.View
 				d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).
 					DoAndReturn(func(_ display.Surface, v scene.View) (*image.Paletted, error) {
@@ -413,7 +540,7 @@ func TestCoordinatorRefreshDuringShow(t *testing.T) {
 	// next render shows the same pixels again.
 	synctest.Test(t, func(t *testing.T) {
 		d := newDeps(t, 1)
-		c := d.coordinator(t, Config{})
+		c := d.coordinator(t, Config{}, PolicyConfig{})
 		d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).Return(frame(0), nil).Times(2)
 		gomock.InOrder(
 			d.disp.EXPECT().Show(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, display.Frame) error {
@@ -435,7 +562,7 @@ func TestCoordinatorRun(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			start := time.Now() // midnight: on a tick boundary
 			d := newDeps(t, 1)
-			c := d.coordinator(t, Config{StartGrace: 30 * time.Second})
+			c := d.coordinator(t, Config{StartGrace: 30 * time.Second}, PolicyConfig{})
 			rendered := make(chan time.Time, 8)
 			d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).
 				DoAndReturn(func(_ display.Surface, v scene.View) (*image.Paletted, error) {
@@ -471,10 +598,73 @@ func TestCoordinatorRun(t *testing.T) {
 			}
 		})
 	})
+	t.Run("quiet hours lengthen the tick", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			start := time.Now() // midnight UTC: inside the quiet hours
+			d := newDeps(t, 1)
+			cfg := policyConfig()
+			cfg.Tick = time.Minute
+			cfg.Quiet = Quiet{From: 22 * time.Hour, To: 8 * time.Hour, Tick: 5 * time.Minute, Wash: 4 * time.Hour}
+			c := d.coordinator(t, Config{}, cfg)
+			rendered := make(chan time.Time, 8)
+			d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).
+				DoAndReturn(func(_ display.Surface, v scene.View) (*image.Paletted, error) {
+					rendered <- v.Now
+					return frame(0), nil
+				}).AnyTimes()
+			d.disp.EXPECT().Show(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+			ctx, cancel := context.WithCancel(t.Context())
+			done := make(chan error, 1)
+			go func() { done <- c.Run(ctx) }()
+
+			time.Sleep(4*time.Minute + 59*time.Second)
+			synctest.Wait()
+			if got := len(rendered); got != 1 {
+				t.Fatalf("%d renders before 00:05, want only the first", got)
+			}
+			<-rendered
+			time.Sleep(time.Second)
+			if got := <-rendered; !got.Equal(start.Add(5 * time.Minute)) {
+				t.Errorf("tick render at %v, want the 5-minute boundary", got)
+			}
+			cancel()
+			<-done
+		})
+	})
+	t.Run("the nightly wash happens exactly once", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			start := time.Now() // midnight UTC
+			d := newDeps(t, 1)
+			cfg := policyConfig()
+			cfg.Tick = time.Minute
+			cfg.Quiet = Quiet{From: 22 * time.Hour, To: 8 * time.Hour, Tick: 5 * time.Minute, Wash: 4 * time.Hour}
+			c := d.coordinator(t, Config{}, cfg)
+			d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).Return(frame(0), nil).AnyTimes()
+			var washes []time.Time
+			d.disp.EXPECT().Show(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, f display.Frame) error {
+					if f.Mode == display.ModeWash {
+						washes = append(washes, time.Now())
+					}
+					return nil
+				}).AnyTimes()
+			ctx, cancel := context.WithCancel(t.Context())
+			done := make(chan error, 1)
+			go func() { done <- c.Run(ctx) }()
+
+			time.Sleep(10 * time.Hour) // past the end of the quiet hours
+			synctest.Wait()
+			cancel()
+			<-done
+			if len(washes) != 1 || !washes[0].Equal(start.Add(4*time.Hour)) {
+				t.Errorf("washes at %v, want once at 04:00", washes)
+			}
+		})
+	})
 	t.Run("wake renders immediately", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			d := newDeps(t, 1)
-			c := d.coordinator(t, Config{})
+			c := d.coordinator(t, Config{}, PolicyConfig{})
 			rendered := make(chan struct{}, 8)
 			d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).
 				DoAndReturn(func(display.Surface, scene.View) (*image.Paletted, error) {
@@ -498,7 +688,7 @@ func TestCoordinatorRun(t *testing.T) {
 	t.Run("render errors are logged, not fatal", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			d := newDeps(t, 1)
-			c := d.coordinator(t, Config{})
+			c := d.coordinator(t, Config{}, PolicyConfig{})
 			d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).Return(nil, errors.New("boom")).AnyTimes()
 			ctx, cancel := context.WithCancel(t.Context())
 			done := make(chan error, 1)
@@ -516,7 +706,7 @@ func TestCoordinatorRun(t *testing.T) {
 
 func TestCoordinatorWake(t *testing.T) {
 	d := newDeps(t, 1)
-	c := d.coordinator(t, Config{})
+	c := d.coordinator(t, Config{}, PolicyConfig{})
 	c.Wake()
 	c.Wake() // coalesces instead of blocking
 	if len(c.wake) != 1 {
@@ -526,7 +716,7 @@ func TestCoordinatorWake(t *testing.T) {
 
 func TestCoordinatorNextPage(t *testing.T) {
 	d := newDeps(t, 2)
-	c := d.coordinator(t, Config{})
+	c := d.coordinator(t, Config{}, PolicyConfig{})
 	gomock.InOrder(
 		d.scenes[1].EXPECT().Render(testSurface, gomock.Any()).Return(frame(0), nil),
 		d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).Return(frame(1), nil),
@@ -547,7 +737,7 @@ func TestCoordinatorNextPage(t *testing.T) {
 
 func TestCoordinatorRefresh(t *testing.T) {
 	d := newDeps(t, 1)
-	c := d.coordinator(t, Config{})
+	c := d.coordinator(t, Config{}, PolicyConfig{})
 	d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).Return(frame(0), nil).Times(2)
 	// the same pixels shown twice: Refresh forgot the glass
 	d.disp.EXPECT().Show(gomock.Any(), gomock.Any()).Return(nil).Times(2)
