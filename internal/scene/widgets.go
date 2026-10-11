@@ -341,7 +341,10 @@ func (Footer) Draw(c *Canvas, r image.Rectangle, v View) {
 			if i == footerEvents {
 				break
 			}
-			parts = append(parts, v.Clock(e.At)+" "+v.Bundle.T("event."+string(e.Kind), i18n.Args{"Subject": v.eventSubject(e)}))
+			parts = append(
+				parts,
+				v.Clock(e.At)+" "+v.Bundle.T("event."+string(e.Kind), i18n.Args{"Subject": v.eventSubject(e)}),
+			)
 		}
 		text = strings.Join(parts, "  ·  ")
 	}

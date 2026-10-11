@@ -37,8 +37,18 @@ const (
 
 // eventKinds lists every kind, in declaration order.
 var eventKinds = []EventKind{
-	EventUnlocked, EventLocked, EventLeakStarted, EventLeakEnded, EventPoweredOn, EventPoweredOff,
-	EventOffline, EventOnline, EventButtonPressed, EventAlertRaised, EventAlertResolved, EventAlertAcked,
+	EventUnlocked,
+	EventLocked,
+	EventLeakStarted,
+	EventLeakEnded,
+	EventPoweredOn,
+	EventPoweredOff,
+	EventOffline,
+	EventOnline,
+	EventButtonPressed,
+	EventAlertRaised,
+	EventAlertResolved,
+	EventAlertAcked,
 }
 
 // EventKinds lists every event kind, for whatever must cover them all: the

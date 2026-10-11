@@ -27,7 +27,17 @@ func (r *Repository) Upsert(ctx context.Context, devices []model.Device, at time
 		ON CONFLICT (id) DO UPDATE SET name = excluded.name, room = excluded.room,
 			kind = excluded.kind, last_seen = excluded.last_seen`
 	for _, d := range devices {
-		if _, err := r.db.ExecContext(ctx, q, string(d.ID), d.ID.Source(), d.Name, nullable(d.Room), string(d.Kind), at.Unix(), at.Unix()); err != nil {
+		if _, err := r.db.ExecContext(
+			ctx,
+			q,
+			string(d.ID),
+			d.ID.Source(),
+			d.Name,
+			nullable(d.Room),
+			string(d.Kind),
+			at.Unix(),
+			at.Unix(),
+		); err != nil {
 			return fmt.Errorf("devices: upsert %s: %w", d.ID, err)
 		}
 	}

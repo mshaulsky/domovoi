@@ -32,8 +32,14 @@ func (r *Repository) Get(ctx context.Context, key string) (value string, ok bool
 
 // Set writes a setting, replacing an existing value.
 func (r *Repository) Set(ctx context.Context, key, value string, at time.Time) error {
-	if _, err := r.db.ExecContext(ctx, `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
-		ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`, key, value, at.Unix()); err != nil {
+	if _, err := r.db.ExecContext(
+		ctx,
+		`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+		ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+		key,
+		value,
+		at.Unix(),
+	); err != nil {
 		return fmt.Errorf("settings: set %s: %w", key, err)
 	}
 	return nil

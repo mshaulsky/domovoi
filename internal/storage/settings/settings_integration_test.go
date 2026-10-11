@@ -18,7 +18,11 @@ var epoch = time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 
 func openDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "domovoi.db"), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	db, err := sqlite.Open(
+		t.Context(),
+		filepath.Join(t.TempDir(), "domovoi.db"),
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +55,10 @@ func TestRepositorySet(t *testing.T) {
 	}
 	var v string
 	var at int64
-	if err := db.QueryRowContext(t.Context(), `SELECT value, updated_at FROM settings WHERE key = 'language'`).Scan(&v, &at); err != nil {
+	if err := db.QueryRowContext(
+		t.Context(),
+		`SELECT value, updated_at FROM settings WHERE key = 'language'`,
+	).Scan(&v, &at); err != nil {
 		t.Fatal(err)
 	}
 	if v != "en" || at != epoch.Add(time.Minute).Unix() {

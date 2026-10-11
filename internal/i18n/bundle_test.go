@@ -102,14 +102,59 @@ func TestBundleT(t *testing.T) {
 		args []Args
 		want string
 	}{
-		{name: "plain", lang: "en", key: "scene.outside", want: "Outside"},
-		{name: "placeholder", lang: "en", key: "scene.updated", args: []Args{{"Time": "12:05"}}, want: "updated 12:05"},
-		{name: "russian", lang: "ru", key: "scene.updated", args: []Args{{"Time": "12:05"}}, want: "обновлено 12:05"},
-		{name: "percent sign", lang: "en", key: "scene.precipitation", args: []Args{{"Percent": "40"}}, want: "40 %"},
-		{name: "two placeholders", lang: "ru", key: "scene.min_max", args: []Args{{"Min": "18,2"}, {"Max": "24,0"}}, want: "18,2 / 24,0"},
-		{name: "subject", lang: "en", key: "event.unlocked", args: []Args{{"Subject": "Door"}}, want: "Door unlocked"},
-		{name: "unknown key returns key", lang: "en", key: "scene.nope", want: "scene.nope"},
-		{name: "date key", lang: "ru", key: "date.month.5", want: "мая"},
+		{
+			name: "plain",
+			lang: "en",
+			key:  "scene.outside",
+			want: "Outside",
+		},
+		{
+			name: "placeholder",
+			lang: "en",
+			key:  "scene.updated",
+			args: []Args{{"Time": "12:05"}},
+			want: "updated 12:05",
+		},
+		{
+			name: "russian",
+			lang: "ru",
+			key:  "scene.updated",
+			args: []Args{{"Time": "12:05"}},
+			want: "обновлено 12:05",
+		},
+		{
+			name: "percent sign",
+			lang: "en",
+			key:  "scene.precipitation",
+			args: []Args{{"Percent": "40"}},
+			want: "40 %",
+		},
+		{
+			name: "two placeholders",
+			lang: "ru",
+			key:  "scene.min_max",
+			args: []Args{{"Min": "18,2"}, {"Max": "24,0"}},
+			want: "18,2 / 24,0",
+		},
+		{
+			name: "subject",
+			lang: "en",
+			key:  "event.unlocked",
+			args: []Args{{"Subject": "Door"}},
+			want: "Door unlocked",
+		},
+		{
+			name: "unknown key returns key",
+			lang: "en",
+			key:  "scene.nope",
+			want: "scene.nope",
+		},
+		{
+			name: "date key",
+			lang: "ru",
+			key:  "date.month.5",
+			want: "мая",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

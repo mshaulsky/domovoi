@@ -78,7 +78,14 @@ func TestCoreBatch(t *testing.T) {
 
 		lock := model.Device{ID: "aqara:lock", Name: "Lock", Kind: model.KindLock}
 		locked := func(v bool, at time.Time) source.Batch {
-			return source.Batch{Devices: []model.Device{lock}, Readings: []model.Reading{{Device: lock.ID, Metric: model.Locked, Value: model.BoolValue(v), At: at}}}
+			return source.Batch{Devices: []model.Device{lock}, Readings: []model.Reading{
+				{
+					Device: lock.ID,
+					Metric: model.Locked,
+					Value:  model.BoolValue(v),
+					At:     at,
+				},
+			}}
 		}
 		d.core.Batch("aqara", locked(true, start))
 		time.Sleep(time.Minute)
@@ -134,8 +141,16 @@ func TestCoreStart(t *testing.T) {
 		p := NewMockPoller(d.ctrl)
 		co := namedCoordinator(d.ctrl, "hall")
 		ran := make(chan string, 2)
-		p.EXPECT().Run(gomock.Any()).DoAndReturn(func(ctx context.Context) error { ran <- "poller"; <-ctx.Done(); return nil })
-		co.EXPECT().Run(gomock.Any()).DoAndReturn(func(ctx context.Context) error { ran <- "coordinator"; <-ctx.Done(); return errors.New("late") })
+		p.EXPECT().Run(gomock.Any()).DoAndReturn(func(ctx context.Context) error {
+			ran <- "poller"
+			<-ctx.Done()
+			return nil
+		})
+		co.EXPECT().Run(gomock.Any()).DoAndReturn(func(ctx context.Context) error {
+			ran <- "coordinator"
+			<-ctx.Done()
+			return errors.New("late")
+		})
 		d.core.AddPoller("tuya", p)
 		d.core.AddCoordinator(co)
 
@@ -286,14 +301,35 @@ func TestCoreSetStore(t *testing.T) {
 			d.metrics.EXPECT().IncEvent(gomock.Any()).AnyTimes()
 			gomock.InOrder(
 				// first sight: device, reading, no event
-				st.EXPECT().Persist(gomock.Any(), []model.Device{lock}, []model.Reading{reading(true, start)}, nil, start).Return(nil),
+				st.EXPECT().Persist(
+					gomock.Any(),
+					[]model.Device{lock},
+					[]model.Reading{reading(true, start)},
+					nil,
+					start,
+				).Return(nil),
 				// unchanged within the heartbeat: nothing to write, no call
 				// changed: the reading and the unlocked event
-				st.EXPECT().Persist(gomock.Any(), nil, []model.Reading{reading(false, start.Add(2*time.Minute))}, gomock.Len(1), start.Add(2*time.Minute)).Return(nil),
+				st.EXPECT().Persist(
+					gomock.Any(),
+					nil,
+					[]model.Reading{reading(false, start.Add(2*time.Minute))},
+					gomock.Len(1),
+					start.Add(2*time.Minute),
+				).Return(nil),
 				// unchanged but the heartbeat elapsed: the value again, stamped now
-				st.EXPECT().Persist(gomock.Any(), nil, []model.Reading{reading(false, start.Add(2*time.Minute+DefaultHeartbeat))}, nil, start.Add(2*time.Minute+DefaultHeartbeat)).Return(nil),
+				st.EXPECT().Persist(
+					gomock.Any(),
+					nil,
+					[]model.Reading{reading(false, start.Add(2*time.Minute+DefaultHeartbeat))},
+					nil,
+					start.Add(2*time.Minute+DefaultHeartbeat),
+				).Return(nil),
 			)
-			d.core.Batch("aqara", source.Batch{Devices: []model.Device{lock}, Readings: []model.Reading{reading(true, start)}})
+			d.core.Batch("aqara", source.Batch{
+				Devices:  []model.Device{lock},
+				Readings: []model.Reading{reading(true, start)},
+			})
 			time.Sleep(time.Minute)
 			d.core.Batch("aqara", source.Batch{Readings: []model.Reading{reading(true, start)}})
 			time.Sleep(time.Minute)
@@ -308,14 +344,18 @@ func TestCoreSetStore(t *testing.T) {
 			d.core.cfg.ClockFloor = time.Now().Add(time.Hour)
 			st := NewMockStore(d.ctrl) // no expectations: a call would fail the test
 			d.core.SetStore(st)
-			d.core.Batch("aqara", source.Batch{Devices: []model.Device{lock}, Readings: []model.Reading{reading(true, time.Now())}})
+			d.core.Batch("aqara", source.Batch{
+				Devices:  []model.Device{lock},
+				Readings: []model.Reading{reading(true, time.Now())},
+			})
 		})
 	})
 	t.Run("a persist error is logged and counted, not fatal", func(t *testing.T) {
 		d := newCore(t)
 		st := NewMockStore(d.ctrl)
 		d.core.SetStore(st)
-		st.EXPECT().Persist(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("disk full"))
+		st.EXPECT().Persist(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(errors.New("disk full"))
 		d.metrics.EXPECT().IncStoreError("persist")
 		d.metrics.EXPECT().IncEvent("button_pressed")
 		d.core.Event(model.Event{Device: lock.ID, Kind: model.EventButtonPressed, At: time.Now()})
@@ -328,11 +368,26 @@ func TestCoreSetStore(t *testing.T) {
 			d.core.SetStore(st)
 			d.metrics.EXPECT().IncStoreError("persist")
 			gomock.InOrder(
-				st.EXPECT().Persist(gomock.Any(), []model.Device{lock}, []model.Reading{reading(true, start)}, nil, start).Return(errors.New("disk stalled")),
+				st.EXPECT().Persist(
+					gomock.Any(),
+					[]model.Device{lock},
+					[]model.Reading{reading(true, start)},
+					nil,
+					start,
+				).Return(errors.New("disk stalled")),
 				// nothing was stamped, so the unchanged value is written again as a heartbeat at once
-				st.EXPECT().Persist(gomock.Any(), nil, []model.Reading{reading(true, start.Add(time.Minute))}, nil, start.Add(time.Minute)).Return(nil),
+				st.EXPECT().Persist(
+					gomock.Any(),
+					nil,
+					[]model.Reading{reading(true, start.Add(time.Minute))},
+					nil,
+					start.Add(time.Minute),
+				).Return(nil),
 			)
-			d.core.Batch("aqara", source.Batch{Devices: []model.Device{lock}, Readings: []model.Reading{reading(true, start)}})
+			d.core.Batch("aqara", source.Batch{
+				Devices:  []model.Device{lock},
+				Readings: []model.Reading{reading(true, start)},
+			})
 			time.Sleep(time.Minute)
 			d.core.Batch("aqara", source.Batch{Readings: []model.Reading{reading(true, start)}})
 		})
@@ -347,8 +402,10 @@ func TestCoreSetStore(t *testing.T) {
 			d.core.AddPoller("aqara", p)
 			old := reading(true, time.Now().Add(-time.Hour))
 			gone := model.Device{ID: "tuya:old", Name: "Old"} // its source is no longer configured
-			st.EXPECT().Restore(gomock.Any()).Return([]model.Device{lock, gone}, []model.Reading{old,
-				{Device: gone.ID, Metric: model.Temperature, Value: model.NumberValue(20), At: old.At}}, nil)
+			st.EXPECT().Restore(gomock.Any()).Return([]model.Device{lock, gone}, []model.Reading{
+				old,
+				{Device: gone.ID, Metric: model.Temperature, Value: model.NumberValue(20), At: old.At},
+			}, nil)
 			st.EXPECT().Prune(gomock.Any(), gomock.Any()).Return(int64(3), nil)
 			ctx, cancel := context.WithCancel(t.Context())
 			if err := d.core.Start(ctx); err != nil {

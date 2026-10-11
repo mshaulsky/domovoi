@@ -15,7 +15,13 @@ import (
 // plus a heartbeat row at `now` for series that have gone Heartbeat without
 // one, plus the devices and events as given — one transaction. Nothing is
 // written without a store or while the clock is not trusted.
-func (c *Core) persist(devices []model.Device, readings []model.Reading, changes []state.Change, events []model.Event, now time.Time) {
+func (c *Core) persist(
+	devices []model.Device,
+	readings []model.Reading,
+	changes []state.Change,
+	events []model.Event,
+	now time.Time,
+) {
 	c.mu.Lock()
 	store := c.store
 	ctx := c.ctx
@@ -56,7 +62,17 @@ func (c *Core) persist(devices []model.Device, readings []model.Reading, changes
 	if err := store.Persist(ctx, devices, write, events, now); err != nil {
 		// The rows are lost, but not the heartbeat: with nothing stamped,
 		// the next batch writes the value again.
-		c.log.Error("persist failed", "devices", len(devices), "readings", len(write), "events", len(events), "err", err)
+		c.log.Error(
+			"persist failed",
+			"devices",
+			len(devices),
+			"readings",
+			len(write),
+			"events",
+			len(events),
+			"err",
+			err,
+		)
 		c.metrics.IncStoreError("persist")
 		return
 	}
@@ -100,7 +116,10 @@ func (c *Core) restore(ctx context.Context) {
 // IDs it dropped: a section renamed or removed since the rows were written
 // has nobody to list its devices again, so they would sit on the display
 // for good. Their history stays in the file.
-func (c *Core) configured(devices []model.Device, readings []model.Reading) ([]model.Device, []model.Reading, []model.DeviceID) {
+func (c *Core) configured(
+	devices []model.Device,
+	readings []model.Reading,
+) ([]model.Device, []model.Reading, []model.DeviceID) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	known := func(id model.DeviceID) bool {
@@ -164,7 +183,13 @@ func (c *Core) prune(ctx context.Context) {
 func (c *Core) clockOK(now time.Time) bool {
 	if now.Before(c.cfg.ClockFloor) {
 		if !c.clockWarned {
-			c.log.Warn("clock is behind the build, not persisting until it is synced", "now", now, "floor", c.cfg.ClockFloor)
+			c.log.Warn(
+				"clock is behind the build, not persisting until it is synced",
+				"now",
+				now,
+				"floor",
+				c.cfg.ClockFloor,
+			)
 			c.clockWarned = true
 		}
 		return false

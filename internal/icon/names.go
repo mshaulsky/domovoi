@@ -201,8 +201,16 @@ var batteryLevels = []struct {
 	min  int
 	icon Icon
 }{
-	{95, Battery}, {85, Battery90}, {75, Battery80}, {65, Battery70}, {55, Battery60},
-	{45, Battery50}, {35, Battery40}, {25, Battery30}, {15, Battery20}, {5, Battery10},
+	{95, Battery},
+	{85, Battery90},
+	{75, Battery80},
+	{65, Battery70},
+	{55, Battery60},
+	{45, Battery50},
+	{35, Battery40},
+	{25, Battery30},
+	{15, Battery20},
+	{5, Battery10},
 	{0, BatteryEmpty},
 }
 

@@ -18,7 +18,13 @@ type Metrics interface {
 // Store is where the core persists and restores; nil means no storage
 // (tests, a deliberately stateless run). One Persist is one transaction.
 type Store interface {
-	Persist(ctx context.Context, devices []model.Device, readings []model.Reading, events []model.Event, at time.Time) error
+	Persist(
+		ctx context.Context,
+		devices []model.Device,
+		readings []model.Reading,
+		events []model.Event,
+		at time.Time,
+	) error
 	Restore(ctx context.Context) ([]model.Device, []model.Reading, error)
 	Prune(ctx context.Context, before time.Time) (int64, error)
 }

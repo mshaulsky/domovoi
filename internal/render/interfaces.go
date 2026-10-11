@@ -33,7 +33,12 @@ var _ Scene = scene.Scene(nil)
 // extremes, the trend over the last hour, the latest journal events. A
 // nil History means no storage: the tiles draw without them.
 type History interface {
-	Extremes(ctx context.Context, id model.DeviceID, m model.Metric, since time.Time) (lo, hi float64, ok bool, err error)
+	Extremes(
+		ctx context.Context,
+		id model.DeviceID,
+		m model.Metric,
+		since time.Time,
+	) (lo, hi float64, ok bool, err error)
 	Trend(ctx context.Context, id model.DeviceID, m model.Metric, since time.Time) (delta float64, ok bool, err error)
 	Events(ctx context.Context, since time.Time, limit int) ([]model.Event, error)
 }

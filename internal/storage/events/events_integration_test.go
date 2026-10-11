@@ -19,7 +19,11 @@ var epoch = time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 
 func openDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "domovoi.db"), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	db, err := sqlite.Open(
+		t.Context(),
+		filepath.Join(t.TempDir(), "domovoi.db"),
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +72,8 @@ func TestRepositorySince(t *testing.T) {
 	if len(got) != 2 || !sameEvent(got[0], evs[2]) || !sameEvent(got[1], evs[1]) {
 		t.Errorf("Since = %+v; want the two newest, newest first", got)
 	}
-	if got, err := r.Since(t.Context(), epoch.Add(-3*time.Hour), 1); err != nil || len(got) != 1 || !sameEvent(got[0], evs[2]) {
+	if got, err := r.Since(t.Context(), epoch.Add(-3*time.Hour), 1); err != nil || len(got) != 1 ||
+		!sameEvent(got[0], evs[2]) {
 		t.Errorf("limit 1 = %+v, %v", got, err)
 	}
 }

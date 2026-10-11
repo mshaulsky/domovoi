@@ -113,9 +113,19 @@ func TestForCondition(t *testing.T) {
 		})
 	}
 	for _, c := range []model.WeatherCondition{
-		model.WeatherClear, model.WeatherMainlyClear, model.WeatherPartlyCloudy, model.WeatherOvercast,
-		model.WeatherFog, model.WeatherDrizzle, model.WeatherRain, model.WeatherFreezingRain, model.WeatherSnow,
-		model.WeatherShowers, model.WeatherSnowShowers, model.WeatherThunderstorm, model.WeatherUnknown,
+		model.WeatherClear,
+		model.WeatherMainlyClear,
+		model.WeatherPartlyCloudy,
+		model.WeatherOvercast,
+		model.WeatherFog,
+		model.WeatherDrizzle,
+		model.WeatherRain,
+		model.WeatherFreezingRain,
+		model.WeatherSnow,
+		model.WeatherShowers,
+		model.WeatherSnowShowers,
+		model.WeatherThunderstorm,
+		model.WeatherUnknown,
 	} {
 		if _, ok := conditions[c]; !ok {
 			t.Errorf("condition %q has no icon", c)

@@ -83,7 +83,12 @@ func (r *Repository) Series(ctx context.Context, id model.DeviceID, m model.Metr
 
 // Extremes returns the lowest and highest numeric points since a moment;
 // ok is false when the series has no numeric point in the window.
-func (r *Repository) Extremes(ctx context.Context, id model.DeviceID, m model.Metric, since time.Time) (lo, hi Point, ok bool, err error) {
+func (r *Repository) Extremes(
+	ctx context.Context,
+	id model.DeviceID,
+	m model.Metric,
+	since time.Time,
+) (lo, hi Point, ok bool, err error) {
 	const q = `SELECT r.at, r.num, r.text FROM readings r
 		JOIN series s ON s.id = r.series
 		WHERE s.device = ? AND s.metric = ? AND r.at >= ? AND r.num IS NOT NULL
@@ -110,9 +115,16 @@ func (r *Repository) Last(ctx context.Context, id model.DeviceID, m model.Metric
 // Before returns the newest point at or before a moment: what the value
 // was back then.
 func (r *Repository) Before(ctx context.Context, id model.DeviceID, m model.Metric, t time.Time) (Point, bool, error) {
-	return r.one(ctx, `SELECT r.at, r.num, r.text FROM readings r
+	return r.one(
+		ctx,
+		`SELECT r.at, r.num, r.text FROM readings r
 		JOIN series s ON s.id = r.series
-		WHERE s.device = ? AND s.metric = ? AND r.at <= ? ORDER BY r.at DESC LIMIT 1`, m, string(id), string(m), t.Unix())
+		WHERE s.device = ? AND s.metric = ? AND r.at <= ? ORDER BY r.at DESC LIMIT 1`,
+		m,
+		string(id),
+		string(m),
+		t.Unix(),
+	)
 }
 
 // LastAll returns the newest point of every series as readings: the state
@@ -157,7 +169,10 @@ func (r *Repository) Prune(ctx context.Context, before time.Time) (int64, error)
 	}
 	// A series left without readings is recreated by the next write; kept,
 	// it would pin a retired device's row forever.
-	if _, err := r.db.ExecContext(ctx, `DELETE FROM series WHERE NOT EXISTS (SELECT 1 FROM readings WHERE readings.series = series.id)`); err != nil {
+	if _, err := r.db.ExecContext(
+		ctx,
+		`DELETE FROM series WHERE NOT EXISTS (SELECT 1 FROM readings WHERE readings.series = series.id)`,
+	); err != nil {
 		return n, fmt.Errorf("readings: prune empty series: %w", err)
 	}
 	return n, nil
@@ -171,7 +186,12 @@ func (r *Repository) series(ctx context.Context, id model.DeviceID, m model.Metr
 		return 0, fmt.Errorf("readings: series %s/%s: %w", id, m, err)
 	}
 	var sid int64
-	if err := r.db.QueryRowContext(ctx, `SELECT id FROM series WHERE device = ? AND metric = ?`, string(id), string(m)).Scan(&sid); err != nil {
+	if err := r.db.QueryRowContext(
+		ctx,
+		`SELECT id FROM series WHERE device = ? AND metric = ?`,
+		string(id),
+		string(m),
+	).Scan(&sid); err != nil {
 		return 0, fmt.Errorf("readings: series %s/%s: %w", id, m, err)
 	}
 	return sid, nil

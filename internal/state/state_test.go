@@ -76,26 +76,32 @@ func TestStateApplyReadings(t *testing.T) {
 			wantN:   1,
 		},
 		{
-			name:    "changed value reports old and new",
-			first:   []model.Reading{reading("tuya:bed", model.Temperature, model.NumberValue(21), epoch)},
-			second:  []model.Reading{reading("tuya:bed", model.Temperature, model.NumberValue(22), epoch.Add(time.Minute))},
+			name:  "changed value reports old and new",
+			first: []model.Reading{reading("tuya:bed", model.Temperature, model.NumberValue(21), epoch)},
+			second: []model.Reading{
+				reading("tuya:bed", model.Temperature, model.NumberValue(22), epoch.Add(time.Minute)),
+			},
 			wantOld: ptr(model.NumberValue(21)),
 			wantNew: model.NumberValue(22),
 			wantAt:  epoch.Add(time.Minute),
 			wantN:   1,
 		},
 		{
-			name:    "same value refreshes the time only",
-			first:   []model.Reading{reading("tuya:bed", model.Temperature, model.NumberValue(21), epoch)},
-			second:  []model.Reading{reading("tuya:bed", model.Temperature, model.NumberValue(21), epoch.Add(time.Minute))},
+			name:  "same value refreshes the time only",
+			first: []model.Reading{reading("tuya:bed", model.Temperature, model.NumberValue(21), epoch)},
+			second: []model.Reading{
+				reading("tuya:bed", model.Temperature, model.NumberValue(21), epoch.Add(time.Minute)),
+			},
 			wantNew: model.NumberValue(21),
 			wantAt:  epoch.Add(time.Minute),
 			wantN:   0,
 		},
 		{
-			name:    "older reading ignored",
-			first:   []model.Reading{reading("tuya:bed", model.Temperature, model.NumberValue(21), epoch)},
-			second:  []model.Reading{reading("tuya:bed", model.Temperature, model.NumberValue(19), epoch.Add(-time.Minute))},
+			name:  "older reading ignored",
+			first: []model.Reading{reading("tuya:bed", model.Temperature, model.NumberValue(21), epoch)},
+			second: []model.Reading{
+				reading("tuya:bed", model.Temperature, model.NumberValue(19), epoch.Add(-time.Minute)),
+			},
 			wantNew: model.NumberValue(21),
 			wantAt:  epoch,
 			wantN:   0,
@@ -152,14 +158,17 @@ func TestStateSnapshot(t *testing.T) {
 	for _, d := range sn.Devices {
 		got = append(got, d.ID)
 	}
-	want := []model.DeviceID{"tuya:hall", "tuya:zed", "tuya:off", "aqara:lock", "tuya:bed"} // by room then name, case-insensitively
+	// by room then name, case-insensitively
+	want := []model.DeviceID{"tuya:hall", "tuya:zed", "tuya:off", "aqara:lock", "tuya:bed"}
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("device order = %v, want %v", got, want)
 		}
 	}
 	// The snapshot is a copy: later applies must not show through.
-	s.ApplyReadings([]model.Reading{reading("tuya:bed", model.Temperature, model.NumberValue(25), epoch.Add(time.Minute))})
+	s.ApplyReadings([]model.Reading{
+		reading("tuya:bed", model.Temperature, model.NumberValue(25), epoch.Add(time.Minute)),
+	})
 	if r, _ := sn.Reading("tuya:bed", model.Temperature); r.Value.Num != 21 {
 		t.Errorf("snapshot mutated: %v", r.Value)
 	}
@@ -204,13 +213,51 @@ func TestSnapshotStale(t *testing.T) {
 		at         time.Time
 		want       bool
 	}{
-		{name: "never polled", at: epoch, want: true},
-		{name: "fresh", lastOK: epoch, staleAfter: 10 * time.Minute, at: epoch.Add(5 * time.Minute), want: false},
-		{name: "just past", lastOK: epoch, staleAfter: 10 * time.Minute, at: epoch.Add(10*time.Minute + time.Second), want: true},
-		{name: "default stale-after", lastOK: epoch, at: epoch.Add(DefaultStaleAfter + time.Second), want: true},
-		{name: "default still fresh", lastOK: epoch, at: epoch.Add(DefaultStaleAfter - time.Second), want: false},
-		{name: "silent device on a healthy source", lastOK: epoch, seen: epoch.Add(-DeviceStaleAfter - time.Second), at: epoch, want: true},
-		{name: "recently heard device", lastOK: epoch, seen: epoch.Add(-DeviceStaleAfter + time.Minute), at: epoch, want: false},
+		{
+			name: "never polled",
+			at:   epoch,
+			want: true,
+		},
+		{
+			name:       "fresh",
+			lastOK:     epoch,
+			staleAfter: 10 * time.Minute,
+			at:         epoch.Add(5 * time.Minute),
+			want:       false,
+		},
+		{
+			name:       "just past",
+			lastOK:     epoch,
+			staleAfter: 10 * time.Minute,
+			at:         epoch.Add(10*time.Minute + time.Second),
+			want:       true,
+		},
+		{
+			name:   "default stale-after",
+			lastOK: epoch,
+			at:     epoch.Add(DefaultStaleAfter + time.Second),
+			want:   true,
+		},
+		{
+			name:   "default still fresh",
+			lastOK: epoch,
+			at:     epoch.Add(DefaultStaleAfter - time.Second),
+			want:   false,
+		},
+		{
+			name:   "silent device on a healthy source",
+			lastOK: epoch,
+			seen:   epoch.Add(-DeviceStaleAfter - time.Second),
+			at:     epoch,
+			want:   true,
+		},
+		{
+			name:   "recently heard device",
+			lastOK: epoch,
+			seen:   epoch.Add(-DeviceStaleAfter + time.Minute),
+			at:     epoch,
+			want:   false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -222,7 +269,14 @@ func TestSnapshotStale(t *testing.T) {
 				s.SetHealth("tuya", nil, tt.lastOK)
 			}
 			if !tt.seen.IsZero() {
-				s.ApplyReadings([]model.Reading{{Device: "tuya:bed", Metric: model.Temperature, Value: model.NumberValue(20), At: tt.seen}})
+				s.ApplyReadings([]model.Reading{
+					{
+						Device: "tuya:bed",
+						Metric: model.Temperature,
+						Value:  model.NumberValue(20),
+						At:     tt.seen,
+					},
+				})
 			}
 			sn := s.Snapshot(tt.at)
 			if got := sn.Stale("tuya:bed"); got != tt.want {
@@ -268,21 +322,44 @@ func TestClassify(t *testing.T) {
 		changes []Change
 		want    []model.EventKind
 	}{
-		{name: "none", changes: nil, want: nil},
 		{
-			name:    "first sighting is not a transition",
-			changes: []Change{{Device: "aqara:lock", Metric: model.Locked, New: reading("aqara:lock", model.Locked, model.BoolValue(false), epoch)}},
+			name:    "none",
+			changes: nil,
 			want:    nil,
 		},
 		{
-			name:    "unlocked",
-			changes: []Change{{Device: "aqara:lock", Metric: model.Locked, Old: old(model.BoolValue(true)), New: reading("aqara:lock", model.Locked, model.BoolValue(false), epoch)}},
-			want:    []model.EventKind{model.EventUnlocked},
+			name: "first sighting is not a transition",
+			changes: []Change{
+				{
+					Device: "aqara:lock",
+					Metric: model.Locked,
+					New:    reading("aqara:lock", model.Locked, model.BoolValue(false), epoch),
+				},
+			},
+			want: nil,
+		},
+		{
+			name: "unlocked",
+			changes: []Change{
+				{
+					Device: "aqara:lock",
+					Metric: model.Locked,
+					Old:    old(model.BoolValue(true)),
+					New:    reading("aqara:lock", model.Locked, model.BoolValue(false), epoch),
+				},
+			},
+			want: []model.EventKind{model.EventUnlocked},
 		},
 		{
 			name: "number change is not an event",
-			changes: []Change{{Device: "tuya:bed", Metric: model.Temperature,
-				Old: &model.Reading{Value: model.NumberValue(1)}, New: reading("tuya:bed", model.Temperature, model.NumberValue(2), epoch)}},
+			changes: []Change{
+				{
+					Device: "tuya:bed",
+					Metric: model.Temperature,
+					Old:    &model.Reading{Value: model.NumberValue(1)},
+					New:    reading("tuya:bed", model.Temperature, model.NumberValue(2), epoch),
+				},
+			},
 			want: nil,
 		},
 	}
@@ -330,7 +407,10 @@ func TestStateApply(t *testing.T) {
 	if len(changes) != 1 || !changes[0].New.At.Equal(epoch.Add(time.Minute)) {
 		t.Errorf("re-stamp: changes = %+v", changes)
 	}
-	if r, _ := s.Snapshot(epoch.Add(time.Minute)).Reading(dev.ID, model.Temperature); !r.At.Equal(epoch.Add(time.Minute)) || r.Value.Num != 22 {
+	if r, _ := s.Snapshot(epoch.Add(time.Minute)).Reading(
+		dev.ID,
+		model.Temperature,
+	); !r.At.Equal(epoch.Add(time.Minute)) || r.Value.Num != 22 {
 		t.Errorf("held reading = %+v", r)
 	}
 	// A second change under the same frozen vendor stamp is a change too,
@@ -363,7 +443,14 @@ func TestStateApply(t *testing.T) {
 	// After a restart the restored stamp is not a vendor stamp: a change
 	// under an older vendor stamp is still a change.
 	s = New()
-	s.Restore([]model.Device{dev}, []model.Reading{{Device: dev.ID, Metric: model.Temperature, Value: model.NumberValue(25), At: epoch.Add(5 * time.Minute)}})
+	s.Restore([]model.Device{dev}, []model.Reading{
+		{
+			Device: dev.ID,
+			Metric: model.Temperature,
+			Value:  model.NumberValue(25),
+			At:     epoch.Add(5 * time.Minute),
+		},
+	})
 	live := reading
 	live.Value, live.At = model.NumberValue(26), epoch // the frozen update_time
 	changes, _ = s.Apply("tuya", nil, []model.Reading{live}, epoch.Add(10*time.Minute))
@@ -378,10 +465,22 @@ func TestStateApplyRetire(t *testing.T) {
 		listing     []model.Device // the source's listing in the batch under test
 		wantRetired []model.DeviceID
 	}{
-		{name: "a nil listing retires nothing"},
-		{name: "an empty listing retires nothing", listing: []model.Device{}},
-		{name: "a listing retires the source's devices it omits", listing: []model.Device{bedroom}, wantRetired: []model.DeviceID{"tuya:ghost", office.ID}},
-		{name: "a listing naming everything retires nothing", listing: []model.Device{bedroom, office, {ID: "tuya:ghost"}}},
+		{
+			name: "a nil listing retires nothing",
+		},
+		{
+			name:    "an empty listing retires nothing",
+			listing: []model.Device{},
+		},
+		{
+			name:        "a listing retires the source's devices it omits",
+			listing:     []model.Device{bedroom},
+			wantRetired: []model.DeviceID{"tuya:ghost", office.ID},
+		},
+		{
+			name:    "a listing naming everything retires nothing",
+			listing: []model.Device{bedroom, office, {ID: "tuya:ghost"}},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -419,7 +518,12 @@ func TestStateApplyRetire(t *testing.T) {
 func TestStateRestore(t *testing.T) {
 	s := New()
 	dev := model.Device{ID: "tuya:a", Name: "A"}
-	reading := model.Reading{Device: "tuya:a", Metric: model.Temperature, Value: model.NumberValue(21), At: epoch.Add(-time.Hour)}
+	reading := model.Reading{
+		Device: "tuya:a",
+		Metric: model.Temperature,
+		Value:  model.NumberValue(21),
+		At:     epoch.Add(-time.Hour),
+	}
 	s.Restore([]model.Device{dev}, []model.Reading{reading})
 	sn := s.Snapshot(epoch)
 	if _, ok := sn.Device(dev.ID); !ok || !sn.Restored {

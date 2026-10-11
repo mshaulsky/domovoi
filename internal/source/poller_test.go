@@ -113,7 +113,14 @@ func TestPollerOnce(t *testing.T) {
 				src := namedSource(ctrl)
 				sink := NewMockSink(ctrl)
 				m := NewMockMetrics(ctrl)
-				batch := Batch{Readings: []model.Reading{{Device: "tuya:a", Metric: model.Temperature, Value: model.NumberValue(21), At: time.Now()}}}
+				batch := Batch{Readings: []model.Reading{
+					{
+						Device: "tuya:a",
+						Metric: model.Temperature,
+						Value:  model.NumberValue(21),
+						At:     time.Now(),
+					},
+				}}
 				for _, outcome := range tt.polls {
 					src.EXPECT().Poll(gomock.Any()).DoAndReturn(func(ctx context.Context) (Batch, error) {
 						if _, ok := ctx.Deadline(); !ok {
@@ -189,7 +196,13 @@ func TestPollerRun(t *testing.T) {
 						return Batch{}, outcome
 					})
 				}
-				p := NewPoller(src, sink, PollerConfig{Interval: time.Minute, MaxBackoff: tt.maxBackoff}, quiet, quietMetrics(ctrl))
+				p := NewPoller(
+					src,
+					sink,
+					PollerConfig{Interval: time.Minute, MaxBackoff: tt.maxBackoff},
+					quiet,
+					quietMetrics(ctrl),
+				)
 				ctx, cancel := context.WithCancel(t.Context())
 				done := make(chan error, 1)
 				go func() { done <- p.Run(ctx) }()

@@ -48,9 +48,12 @@ func TestRegistryIncPollSuccess(t *testing.T) {
 	r := New()
 	r.IncPollSuccess("tuya")
 	r.IncPollSuccess("tuya")
-	assertLines(t, exposition(t, r),
+	assertLines(
+		t,
+		exposition(t, r),
 		"# TYPE domovoi_polls_total counter",
-		`domovoi_polls_total{result="success",source="tuya"} 2`)
+		`domovoi_polls_total{result="success",source="tuya"} 2`,
+	)
 }
 
 func TestRegistryIncPollError(t *testing.T) {
@@ -63,12 +66,15 @@ func TestRegistryObservePollDuration(t *testing.T) {
 	r := New()
 	r.ObservePollDuration("tuya", 1500*time.Millisecond)
 	r.ObservePollDuration("tuya", 500*time.Millisecond)
-	assertLines(t, exposition(t, r),
+	assertLines(
+		t,
+		exposition(t, r),
 		"# TYPE domovoi_poll_duration_seconds histogram",
 		`domovoi_poll_duration_seconds_bucket{source="tuya",le="1"} 1`,
 		`domovoi_poll_duration_seconds_bucket{source="tuya",le="2.5"} 2`,
 		`domovoi_poll_duration_seconds_sum{source="tuya"} 2`,
-		`domovoi_poll_duration_seconds_count{source="tuya"} 2`)
+		`domovoi_poll_duration_seconds_count{source="tuya"} 2`,
+	)
 }
 
 func TestRegistryIncRequest(t *testing.T) {
@@ -83,9 +89,12 @@ func TestRegistryIncEvent(t *testing.T) {
 	r := New()
 	r.IncEvent("unlocked")
 	r.IncEvent(`kind "quoted"`)
-	assertLines(t, exposition(t, r),
+	assertLines(
+		t,
+		exposition(t, r),
 		`domovoi_events_total{kind="unlocked"} 1`,
-		`domovoi_events_total{kind="kind \"quoted\""} 1`)
+		`domovoi_events_total{kind="kind \"quoted\""} 1`,
+	)
 }
 
 func TestRegistryIncRender(t *testing.T) {
@@ -93,20 +102,26 @@ func TestRegistryIncRender(t *testing.T) {
 	r.IncRender("hall", "full")
 	r.IncRender("hall", "partial")
 	r.IncRender("hall", "full")
-	assertLines(t, exposition(t, r),
+	assertLines(
+		t,
+		exposition(t, r),
 		`domovoi_renders_total{display="hall",mode="full"} 2`,
-		`domovoi_renders_total{display="hall",mode="partial"} 1`)
+		`domovoi_renders_total{display="hall",mode="partial"} 1`,
+	)
 }
 
 func TestRegistryObserveRenderDuration(t *testing.T) {
 	r := New()
 	r.ObserveRenderDuration("hall", 19*time.Second)
-	assertLines(t, exposition(t, r),
+	assertLines(
+		t,
+		exposition(t, r),
 		"# TYPE domovoi_render_duration_seconds histogram",
 		`domovoi_render_duration_seconds_bucket{display="hall",le="15"} 0`,
 		`domovoi_render_duration_seconds_bucket{display="hall",le="20"} 1`,
 		`domovoi_render_duration_seconds_sum{display="hall"} 19`,
-		`domovoi_render_duration_seconds_count{display="hall"} 1`)
+		`domovoi_render_duration_seconds_count{display="hall"} 1`,
+	)
 }
 
 func TestRegistryIncRenderError(t *testing.T) {
@@ -135,9 +150,12 @@ func TestRegistryHandler(t *testing.T) {
 			}
 		})
 	}
-	assertLines(t, rec.Body.String(),
+	assertLines(
+		t,
+		rec.Body.String(),
 		"# HELP domovoi_polls_total Polls of a source by result.",
-		`domovoi_polls_total{result="success",source="tuya"} 1`)
+		`domovoi_polls_total{result="success",source="tuya"} 1`,
+	)
 }
 
 func TestRegistryIncStoreError(t *testing.T) {

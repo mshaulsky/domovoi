@@ -81,7 +81,12 @@ func (s *Source) Poll(ctx context.Context) (source.Batch, error) {
 	batch := source.Batch{Devices: make([]model.Device, 0, len(statuses))}
 	for _, st := range statuses {
 		id := model.NewDeviceID(s.cfg.Name, st.EndpointID)
-		batch.Devices = append(batch.Devices, model.Device{ID: id, Name: st.DeviceName, Room: st.PositionName, Kind: kindOf(st.Type)})
+		batch.Devices = append(batch.Devices, model.Device{
+			ID:   id,
+			Name: st.DeviceName,
+			Room: st.PositionName,
+			Kind: kindOf(st.Type),
+		})
 		for key, value := range st.Status {
 			r, ok := s.convert(id, key, value, now)
 			if ok {

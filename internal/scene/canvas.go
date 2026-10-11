@@ -170,8 +170,10 @@ func (c *Canvas) stampIn(face font.Face, s string, col color.Color, dot fixed.Po
 	}
 	bounds, _ := font.BoundString(face, s)
 	r := image.Rect(
-		(dot.X + bounds.Min.X).Floor(), (dot.Y + bounds.Min.Y).Floor(),
-		(dot.X+bounds.Max.X).Ceil()+1, (dot.Y+bounds.Max.Y).Ceil()+1,
+		(dot.X + bounds.Min.X).Floor(),
+		(dot.Y + bounds.Min.Y).Floor(),
+		(dot.X+bounds.Max.X).Ceil()+1,
+		(dot.Y+bounds.Max.Y).Ceil()+1,
 	)
 	visible := r.Intersect(c.img.Bounds()).Intersect(clip)
 	if visible.Empty() {

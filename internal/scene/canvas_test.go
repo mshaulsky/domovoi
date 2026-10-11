@@ -138,7 +138,13 @@ func TestCanvasTextIn(t *testing.T) {
 	}
 	t.Run("clipped to the box", func(t *testing.T) {
 		c := newTestCanvas(t, 200, 30)
-		c.TextIn("a very long string that cannot fit", c.Faces().Text(20), display.Black, image.Rect(0, 0, 40, 30), AlignLeft)
+		c.TextIn(
+			"a very long string that cannot fit",
+			c.Faces().Text(20),
+			display.Black,
+			image.Rect(0, 0, 40, 30),
+			AlignLeft,
+		)
 		for y := range 30 {
 			for x := 40; x < 200; x++ {
 				if c.img.ColorIndexAt(x, y) != 0 {

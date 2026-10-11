@@ -14,19 +14,45 @@ func TestSplit(t *testing.T) {
 		vertical bool
 		want     []image.Rectangle
 	}{
-		{name: "none", weights: nil, want: nil},
-		{name: "horizontal thirds absorb rounding", weights: []int{1, 1, 1}, want: []image.Rectangle{
-			image.Rect(10, 20, 43, 80), image.Rect(43, 20, 76, 80), image.Rect(76, 20, 110, 80),
-		}},
-		{name: "vertical weighted", weights: []int{1, 2}, vertical: true, want: []image.Rectangle{
-			image.Rect(10, 20, 110, 40), image.Rect(10, 40, 110, 80),
-		}},
-		{name: "zero weight takes nothing", weights: []int{0, 1}, want: []image.Rectangle{
-			image.Rect(10, 20, 10, 80), image.Rect(10, 20, 110, 80),
-		}},
-		{name: "all zero gives the last everything", weights: []int{0, 0}, want: []image.Rectangle{
-			image.Rect(10, 20, 10, 80), image.Rect(10, 20, 110, 80),
-		}},
+		{
+			name:    "none",
+			weights: nil,
+			want:    nil,
+		},
+		{
+			name:    "horizontal thirds absorb rounding",
+			weights: []int{1, 1, 1},
+			want: []image.Rectangle{
+				image.Rect(10, 20, 43, 80),
+				image.Rect(43, 20, 76, 80),
+				image.Rect(76, 20, 110, 80),
+			},
+		},
+		{
+			name:     "vertical weighted",
+			weights:  []int{1, 2},
+			vertical: true,
+			want: []image.Rectangle{
+				image.Rect(10, 20, 110, 40),
+				image.Rect(10, 40, 110, 80),
+			},
+		},
+		{
+			name:    "zero weight takes nothing",
+			weights: []int{0, 1},
+			want: []image.Rectangle{
+				image.Rect(10, 20, 10, 80),
+				image.Rect(10, 20, 110, 80),
+			},
+		},
+		{
+			name:    "all zero gives the last everything",
+			weights: []int{0, 0},
+			want: []image.Rectangle{
+				image.Rect(10, 20, 10, 80),
+				image.Rect(10, 20, 110, 80),
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

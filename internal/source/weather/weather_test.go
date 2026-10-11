@@ -26,16 +26,22 @@ var (
 const forecast = `{
   "latitude": 43.25, "longitude": 76.9, "generationtime_ms": 0.2, "utc_offset_seconds": 18000,
   "timezone": "Asia/Almaty", "timezone_abbreviation": "+05", "elevation": 780.0,
-  "current_units": {"time": "iso8601", "interval": "seconds", "temperature_2m": "°C", "relative_humidity_2m": "%", "weather_code": "wmo code", "wind_speed_10m": "m/s"},
-  "current": {"time": "2026-09-27T12:45", "interval": 900, "temperature_2m": 17.3, "relative_humidity_2m": 62, "weather_code": 61, "wind_speed_10m": 4.2},
-  "daily_units": {"time": "iso8601", "temperature_2m_max": "°C", "temperature_2m_min": "°C", "sunrise": "iso8601", "sunset": "iso8601", "precipitation_probability_max": "%"},
-  "daily": {"time": ["2026-09-27"], "temperature_2m_max": [21.4], "temperature_2m_min": [9.1], "sunrise": ["2026-09-27T06:41"], "sunset": ["2026-09-27T19:12"], "precipitation_probability_max": [40]}
+  "current_units": {"time": "iso8601", "interval": "seconds", "temperature_2m": "°C", "relative_humidity_2m": "%",
+    "weather_code": "wmo code", "wind_speed_10m": "m/s"},
+  "current": {"time": "2026-09-27T12:45", "interval": 900, "temperature_2m": 17.3, "relative_humidity_2m": 62,
+    "weather_code": 61, "wind_speed_10m": 4.2},
+  "daily_units": {"time": "iso8601", "temperature_2m_max": "°C", "temperature_2m_min": "°C", "sunrise": "iso8601",
+    "sunset": "iso8601", "precipitation_probability_max": "%"},
+  "daily": {"time": ["2026-09-27"], "temperature_2m_max": [21.4], "temperature_2m_min": [9.1],
+    "sunrise": ["2026-09-27T06:41"], "sunset": ["2026-09-27T19:12"], "precipitation_probability_max": [40]}
 }`
 
 // forecastWithNulls is the same answer with values the API had no data for.
 const forecastWithNulls = `{
-  "current": {"time": "2026-09-27T12:45", "temperature_2m": 17.3, "relative_humidity_2m": null, "weather_code": 61, "wind_speed_10m": null},
-  "daily": {"time": ["2026-09-27"], "temperature_2m_max": [null], "temperature_2m_min": [9.1], "sunrise": [null], "sunset": ["2026-09-27T19:12"], "precipitation_probability_max": [null]}
+  "current": {"time": "2026-09-27T12:45", "temperature_2m": 17.3, "relative_humidity_2m": null, "weather_code": 61,
+    "wind_speed_10m": null},
+  "daily": {"time": ["2026-09-27"], "temperature_2m_max": [null], "temperature_2m_min": [9.1], "sunrise": [null],
+    "sunset": ["2026-09-27T19:12"], "precipitation_probability_max": [null]}
 }`
 
 type values map[model.Metric]model.Value
@@ -69,13 +75,51 @@ func TestNew(t *testing.T) {
 		client  Doer
 		wantErr string
 	}{
-		{name: "valid", cfg: Config{Name: "weather", Latitude: 43.25, Longitude: 76.9, Location: almaty, BaseURL: "https://example.test/f"}, client: client},
-		{name: "defaults", cfg: Config{Name: "weather"}, client: client},
-		{name: "name required", cfg: Config{}, client: client, wantErr: "source name is required"},
-		{name: "client required", cfg: Config{Name: "weather"}, wantErr: "http client is required"},
-		{name: "latitude out of range", cfg: Config{Name: "weather", Latitude: 91}, client: client, wantErr: "latitude 91 out of range"},
-		{name: "longitude out of range", cfg: Config{Name: "weather", Longitude: -181}, client: client, wantErr: "longitude -181 out of range"},
-		{name: "relative base URL", cfg: Config{Name: "weather", BaseURL: "/v1/forecast"}, client: client, wantErr: "not an absolute URL"},
+		{
+			name: "valid",
+			cfg: Config{
+				Name:      "weather",
+				Latitude:  43.25,
+				Longitude: 76.9,
+				Location:  almaty,
+				BaseURL:   "https://example.test/f",
+			},
+			client: client,
+		},
+		{
+			name:   "defaults",
+			cfg:    Config{Name: "weather"},
+			client: client,
+		},
+		{
+			name:    "name required",
+			cfg:     Config{},
+			client:  client,
+			wantErr: "source name is required",
+		},
+		{
+			name:    "client required",
+			cfg:     Config{Name: "weather"},
+			wantErr: "http client is required",
+		},
+		{
+			name:    "latitude out of range",
+			cfg:     Config{Name: "weather", Latitude: 91},
+			client:  client,
+			wantErr: "latitude 91 out of range",
+		},
+		{
+			name:    "longitude out of range",
+			cfg:     Config{Name: "weather", Longitude: -181},
+			client:  client,
+			wantErr: "longitude -181 out of range",
+		},
+		{
+			name:    "relative base URL",
+			cfg:     Config{Name: "weather", BaseURL: "/v1/forecast"},
+			client:  client,
+			wantErr: "not an absolute URL",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -111,10 +155,16 @@ func TestSourceName(t *testing.T) {
 func TestSourcePoll(t *testing.T) {
 	stamp := time.Date(2026, 9, 27, 12, 45, 0, 0, almaty)
 	everything := values{
-		model.Temperature: model.NumberValue(17.3), model.Humidity: model.NumberValue(62), model.WeatherCode: model.NumberValue(61),
-		model.WindSpeed: model.NumberValue(4.2), model.PrecipitationProbability: model.NumberValue(40),
-		model.ForecastHigh: model.NumberValue(21.4), model.ForecastLow: model.NumberValue(9.1),
-		model.Sunrise: model.TextValue("06:41"), model.Sunset: model.TextValue("19:12"), model.Online: model.BoolValue(true),
+		model.Temperature:              model.NumberValue(17.3),
+		model.Humidity:                 model.NumberValue(62),
+		model.WeatherCode:              model.NumberValue(61),
+		model.WindSpeed:                model.NumberValue(4.2),
+		model.PrecipitationProbability: model.NumberValue(40),
+		model.ForecastHigh:             model.NumberValue(21.4),
+		model.ForecastLow:              model.NumberValue(9.1),
+		model.Sunrise:                  model.TextValue("06:41"),
+		model.Sunset:                   model.TextValue("19:12"),
+		model.Online:                   model.BoolValue(true),
 	}
 	serve := func(status int, body string) http.HandlerFunc {
 		return func(w http.ResponseWriter, _ *http.Request) {
@@ -139,10 +189,16 @@ func TestSourcePoll(t *testing.T) {
 			handler: serve(http.StatusOK, forecast),
 			polls:   1,
 			wantQuery: url.Values{
-				"latitude": {"43.25"}, "longitude": {"76.9"},
-				"current":  {"temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"},
-				"daily":    {"temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max"},
-				"timezone": {"Asia/Almaty"}, "forecast_days": {"1"}, "wind_speed_unit": {"ms"}, "timeformat": {"iso8601"},
+				"latitude":  {"43.25"},
+				"longitude": {"76.9"},
+
+				"current": {"temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"},
+				"daily":   {"temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max"},
+
+				"timezone":        {"Asia/Almaty"},
+				"forecast_days":   {"1"},
+				"wind_speed_unit": {"ms"},
+				"timeformat":      {"iso8601"},
 			},
 			devices:  []model.Device{{ID: "weather:home", Name: "home", Kind: model.KindVirtual}},
 			readings: everything,
@@ -164,10 +220,16 @@ func TestSourcePoll(t *testing.T) {
 			polls:   2,
 			devices: []model.Device{{ID: "weather:home", Name: "home", Kind: model.KindVirtual}},
 			readings: values{
-				model.Temperature: model.NumberValue(17.3), model.Humidity: model.NumberValue(62), model.WeatherCode: model.NumberValue(61),
-				model.WindSpeed: model.NumberValue(4.2), model.PrecipitationProbability: model.NumberValue(40),
-				model.ForecastHigh: model.NumberValue(21.4), model.ForecastLow: model.NumberValue(9.1),
-				model.Sunrise: model.TextValue("06:41"), model.Sunset: model.TextValue("19:12"), model.Online: model.BoolValue(true),
+				model.Temperature:              model.NumberValue(17.3),
+				model.Humidity:                 model.NumberValue(62),
+				model.WeatherCode:              model.NumberValue(61),
+				model.WindSpeed:                model.NumberValue(4.2),
+				model.PrecipitationProbability: model.NumberValue(40),
+				model.ForecastHigh:             model.NumberValue(21.4),
+				model.ForecastLow:              model.NumberValue(9.1),
+				model.Sunrise:                  model.TextValue("06:41"),
+				model.Sunset:                   model.TextValue("19:12"),
+				model.Online:                   model.BoolValue(true),
 			},
 			stamp: stamp,
 		},
@@ -177,8 +239,11 @@ func TestSourcePoll(t *testing.T) {
 			polls:   1,
 			devices: []model.Device{{ID: "weather:home", Name: "home", Kind: model.KindVirtual}},
 			readings: values{
-				model.Temperature: model.NumberValue(17.3), model.WeatherCode: model.NumberValue(61),
-				model.ForecastLow: model.NumberValue(9.1), model.Sunset: model.TextValue("19:12"), model.Online: model.BoolValue(true),
+				model.Temperature: model.NumberValue(17.3),
+				model.WeatherCode: model.NumberValue(61),
+				model.ForecastLow: model.NumberValue(9.1),
+				model.Sunset:      model.TextValue("19:12"),
+				model.Online:      model.BoolValue(true),
 			},
 			stamp: stamp,
 		},
@@ -190,8 +255,11 @@ func TestSourcePoll(t *testing.T) {
 			readings: values{model.Temperature: model.NumberValue(1), model.Online: model.BoolValue(true)},
 		},
 		{
-			name:    "server error with a reason",
-			handler: serve(http.StatusBadRequest, `{"error": true, "reason": "Latitude must be in range of -90 to 90°."}`),
+			name: "server error with a reason",
+			handler: serve(
+				http.StatusBadRequest,
+				`{"error": true, "reason": "Latitude must be in range of -90 to 90°."}`,
+			),
 			polls:   1,
 			wantErr: "weather: fetch: HTTP 400: Latitude must be in range",
 		},
@@ -223,7 +291,12 @@ func TestSourcePoll(t *testing.T) {
 				tt.handler(w, r)
 			}))
 			defer srv.Close()
-			s, m := newSource(t, srv, Config{Latitude: 43.25, Longitude: 76.9, Location: tt.location, BaseURL: tt.baseURL})
+			s, m := newSource(t, srv, Config{
+				Latitude:  43.25,
+				Longitude: 76.9,
+				Location:  tt.location,
+				BaseURL:   tt.baseURL,
+			})
 			requests := 0
 			m.EXPECT().IncRequest("weather").Do(func(string) { requests++ }).AnyTimes()
 

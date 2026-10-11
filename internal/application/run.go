@@ -233,7 +233,16 @@ func (w wiring) displays(grace time.Duration) ([]display.Display, error) {
 			return displays, fmt.Errorf("display %s: %w", dc.Name, err)
 		}
 		cfg := render.Config{Name: dc.Name, Tick: dc.Tick, FullEvery: dc.FullEvery, StartGrace: grace}
-		co, err := render.New(cfg, disp, scenes, w.state, render.NewFixedLocale(bundle, w.cfg.Timezone), w.history, w.log, w.metrics)
+		co, err := render.New(
+			cfg,
+			disp,
+			scenes,
+			w.state,
+			render.NewFixedLocale(bundle, w.cfg.Timezone),
+			w.history,
+			w.log,
+			w.metrics,
+		)
 		if err != nil {
 			return displays, err
 		}

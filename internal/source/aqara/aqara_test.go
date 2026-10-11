@@ -21,12 +21,42 @@ var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 // The user's inventory, as the status table reports it.
 var (
-	hub    = aqaramcp.Device{EndpointID: "Aqr~hub", DeviceName: "Центр умного дома M3", Type: aqaramcp.TypeHub, PositionName: "Комната по умолчанию"}
-	leak1  = aqaramcp.Device{EndpointID: "Aqr~leak1", DeviceName: "Протечка стиралки", Type: aqaramcp.TypeWaterLeakSensor, PositionName: "Прихожая"}
-	leak2  = aqaramcp.Device{EndpointID: "Aqr~leak2", DeviceName: "Протечка ванная", Type: aqaramcp.TypeWaterLeakSensor, PositionName: "Ванная"}
-	washer = aqaramcp.Device{EndpointID: "Aqr~washer", DeviceName: "Розетка стиралка", Type: aqaramcp.TypeOutlet, PositionName: "Прихожая"}
-	button = aqaramcp.Device{EndpointID: "Aqr~button", DeviceName: "Кнопка замка", Type: aqaramcp.TypeButton, PositionName: "Прихожая"}
-	lock   = aqaramcp.Device{EndpointID: "Aqr~lock", DeviceName: "Дверной замок (U200)", Type: aqaramcp.TypeDoorLock, PositionName: "Прихожая"}
+	hub = aqaramcp.Device{
+		EndpointID:   "Aqr~hub",
+		DeviceName:   "Центр умного дома M3",
+		Type:         aqaramcp.TypeHub,
+		PositionName: "Комната по умолчанию",
+	}
+	leak1 = aqaramcp.Device{
+		EndpointID:   "Aqr~leak1",
+		DeviceName:   "Протечка стиралки",
+		Type:         aqaramcp.TypeWaterLeakSensor,
+		PositionName: "Прихожая",
+	}
+	leak2 = aqaramcp.Device{
+		EndpointID:   "Aqr~leak2",
+		DeviceName:   "Протечка ванная",
+		Type:         aqaramcp.TypeWaterLeakSensor,
+		PositionName: "Ванная",
+	}
+	washer = aqaramcp.Device{
+		EndpointID:   "Aqr~washer",
+		DeviceName:   "Розетка стиралка",
+		Type:         aqaramcp.TypeOutlet,
+		PositionName: "Прихожая",
+	}
+	button = aqaramcp.Device{
+		EndpointID:   "Aqr~button",
+		DeviceName:   "Кнопка замка",
+		Type:         aqaramcp.TypeButton,
+		PositionName: "Прихожая",
+	}
+	lock = aqaramcp.Device{
+		EndpointID:   "Aqr~lock",
+		DeviceName:   "Дверной замок (U200)",
+		Type:         aqaramcp.TypeDoorLock,
+		PositionName: "Прихожая",
+	}
 )
 
 // values is the readings of one batch, by device and metric.
@@ -122,12 +152,42 @@ func TestSourcePoll(t *testing.T) {
 			polls: 2,
 			want: pollWant{
 				devices: []model.Device{
-					{ID: "aqara:Aqr~hub", Name: "Центр умного дома M3", Room: "Комната по умолчанию", Kind: model.KindHub},
-					{ID: "aqara:Aqr~leak1", Name: "Протечка стиралки", Room: "Прихожая", Kind: model.KindLeakSensor},
-					{ID: "aqara:Aqr~washer", Name: "Розетка стиралка", Room: "Прихожая", Kind: model.KindOutlet},
-					{ID: "aqara:Aqr~button", Name: "Кнопка замка", Room: "Прихожая", Kind: model.KindButton},
-					{ID: "aqara:Aqr~lock", Name: "Дверной замок (U200)", Room: "Прихожая", Kind: model.KindLock},
-					{ID: "aqara:Aqr~leak2", Name: "Протечка ванная", Room: "Ванная", Kind: model.KindLeakSensor},
+					{
+						ID:   "aqara:Aqr~hub",
+						Name: "Центр умного дома M3",
+						Room: "Комната по умолчанию",
+						Kind: model.KindHub,
+					},
+					{
+						ID:   "aqara:Aqr~leak1",
+						Name: "Протечка стиралки",
+						Room: "Прихожая",
+						Kind: model.KindLeakSensor,
+					},
+					{
+						ID:   "aqara:Aqr~washer",
+						Name: "Розетка стиралка",
+						Room: "Прихожая",
+						Kind: model.KindOutlet,
+					},
+					{
+						ID:   "aqara:Aqr~button",
+						Name: "Кнопка замка",
+						Room: "Прихожая",
+						Kind: model.KindButton,
+					},
+					{
+						ID:   "aqara:Aqr~lock",
+						Name: "Дверной замок (U200)",
+						Room: "Прихожая",
+						Kind: model.KindLock,
+					},
+					{
+						ID:   "aqara:Aqr~leak2",
+						Name: "Протечка ванная",
+						Room: "Ванная",
+						Kind: model.KindLeakSensor,
+					},
 				},
 				readings: values{
 					"aqara:Aqr~hub":    {model.Online: on},
@@ -143,11 +203,20 @@ func TestSourcePoll(t *testing.T) {
 		{
 			name: "any lock_state but the locked one reads as unlocked",
 			setup: func(c *MockClient) {
-				c.EXPECT().Statuses(gomock.Any(), gomock.Any()).Return([]aqaramcp.DeviceStatus{status(lock, "lock_state", "0", "online_offline", "online")}, nil)
+				c.EXPECT().Statuses(gomock.Any(), gomock.Any()).Return([]aqaramcp.DeviceStatus{
+					status(lock, "lock_state", "0", "online_offline", "online"),
+				}, nil)
 			},
 			polls: 1,
 			want: pollWant{
-				devices:  []model.Device{{ID: "aqara:Aqr~lock", Name: "Дверной замок (U200)", Room: "Прихожая", Kind: model.KindLock}},
+				devices: []model.Device{
+					{
+						ID:   "aqara:Aqr~lock",
+						Name: "Дверной замок (U200)",
+						Room: "Прихожая",
+						Kind: model.KindLock,
+					},
+				},
 				readings: values{"aqara:Aqr~lock": {model.Locked: off, model.Online: on}},
 				requests: 1,
 			},
@@ -155,9 +224,24 @@ func TestSourcePoll(t *testing.T) {
 		{
 			name: "outlet off, unknown keys and bad flags dropped, unknown type is other",
 			setup: func(c *MockClient) {
-				sw := aqaramcp.Device{EndpointID: "Aqr~sw", DeviceName: "Выключатель", Type: "Curtain", PositionName: "Зал"}
+				sw := aqaramcp.Device{
+					EndpointID:   "Aqr~sw",
+					DeviceName:   "Выключатель",
+					Type:         "Curtain",
+					PositionName: "Зал",
+				}
 				c.EXPECT().Statuses(gomock.Any(), gomock.Any()).Return([]aqaramcp.DeviceStatus{
-					status(washer, "on_off", "off", "online_offline", "online", "power_consumed", "12.5", "mystery", "x"),
+					status(
+						washer,
+						"on_off",
+						"off",
+						"online_offline",
+						"online",
+						"power_consumed",
+						"12.5",
+						"mystery",
+						"x",
+					),
 					status(leak2, "water_leak", "maybe", "online_offline", "online"),
 					status(sw, "online_offline", "online", "curtain_state", "open"),
 				}, nil)
@@ -184,7 +268,14 @@ func TestSourcePoll(t *testing.T) {
 			},
 			polls: 1,
 			want: pollWant{
-				devices:  []model.Device{{ID: "aqara:Aqr~button", Name: "Кнопка замка", Room: "Прихожая", Kind: model.KindButton}},
+				devices: []model.Device{
+					{
+						ID:   "aqara:Aqr~button",
+						Name: "Кнопка замка",
+						Room: "Прихожая",
+						Kind: model.KindButton,
+					},
+				},
 				readings: values{},
 				requests: 1,
 			},

@@ -30,7 +30,8 @@ func writeConfig(t *testing.T, dir, yaml string) string {
 // pngConfig is a config with one pngfile display writing frame.png into dir.
 func pngConfig(t *testing.T, dir, extra string) string {
 	t.Helper()
-	return writeConfig(t, dir, extra+"storage:\n  path: "+filepath.Join(dir, "domovoi.db")+"\ndisplays:\n  - kind: pngfile\n    path: "+filepath.Join(dir, "frame.png")+"\n")
+	return writeConfig(t, dir, extra+"storage:\n  path: "+filepath.Join(dir, "domovoi.db")+
+		"\ndisplays:\n  - kind: pngfile\n    path: "+filepath.Join(dir, "frame.png")+"\n")
 }
 
 // failing is a module whose Start reports a fatal failure shortly after.
@@ -55,7 +56,12 @@ func TestRun(t *testing.T) {
 	t.Run("once renders a frame with no sources", func(t *testing.T) {
 		dir := t.TempDir()
 		path := pngConfig(t, dir, "language: ru\n")
-		err := Run(t.Context(), Options{ConfigPath: path, Once: true, Lookup: config.MapLookup(nil), LogOutput: io.Discard})
+		err := Run(t.Context(), Options{
+			ConfigPath: path,
+			Once:       true,
+			Lookup:     config.MapLookup(nil),
+			LogOutput:  io.Discard,
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -79,7 +85,12 @@ func TestRun(t *testing.T) {
 	t.Run("check builds everything and writes nothing", func(t *testing.T) {
 		dir := t.TempDir()
 		path := pngConfig(t, dir, "")
-		if err := Run(t.Context(), Options{ConfigPath: path, Check: true, Lookup: config.MapLookup(nil), LogOutput: io.Discard}); err != nil {
+		if err := Run(t.Context(), Options{
+			ConfigPath: path,
+			Check:      true,
+			Lookup:     config.MapLookup(nil),
+			LogOutput:  io.Discard,
+		}); err != nil {
 			t.Fatal(err)
 		}
 		for _, name := range []string{"frame.png", "domovoi.db"} {
@@ -92,14 +103,23 @@ func TestRun(t *testing.T) {
 		path := pngConfig(t, t.TempDir(), "")
 		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 		defer cancel()
-		if err := Run(ctx, Options{ConfigPath: path, Lookup: config.MapLookup(nil), LogOutput: io.Discard}); err != nil {
+		if err := Run(ctx, Options{
+			ConfigPath: path,
+			Lookup:     config.MapLookup(nil),
+			LogOutput:  io.Discard,
+		}); err != nil {
 			t.Fatalf("Run = %v, want nil on cancellation", err)
 		}
 	})
 	t.Run("a module failure stops the run with its cause", func(t *testing.T) {
 		path := pngConfig(t, t.TempDir(), "")
 		mods := append(enabled(), &failing{})
-		err := Run(t.Context(), Options{ConfigPath: path, Lookup: config.MapLookup(nil), LogOutput: io.Discard, Modules: mods})
+		err := Run(t.Context(), Options{
+			ConfigPath: path,
+			Lookup:     config.MapLookup(nil),
+			LogOutput:  io.Discard,
+			Modules:    mods,
+		})
 		if err == nil || err.Error() != "hardware gone" {
 			t.Fatalf("Run = %v, want the module's cause", err)
 		}
@@ -109,12 +129,37 @@ func TestRun(t *testing.T) {
 		yaml    string
 		wantErr string
 	}{
-		{name: "missing config", yaml: "", wantErr: "no such file"},
-		{name: "unknown display kind", yaml: "displays:\n  - kind: hologram\n", wantErr: `unknown kind "hologram" (known: pngfile)`},
-		{name: "unknown source kind", yaml: "sources:\n  - kind: zwave\ndisplays:\n  - kind: pngfile\n    path: /tmp/x.png\n", wantErr: `unknown kind "zwave"`},
-		{name: "unknown scene", yaml: "displays:\n  - kind: pngfile\n    path: /tmp/x.png\n    scenes: [galaxy]\n", wantErr: `scene galaxy`},
-		{name: "unknown language", yaml: "language: xx\ndisplays:\n  - kind: pngfile\n    path: /tmp/x.png\n", wantErr: `language "xx"`},
-		{name: "unresolved secret", yaml: "sources:\n  - kind: tuya\n    access_id: ${NOPE}\n    access_key: ${NOPE}\ndisplays:\n  - kind: pngfile\n    path: /tmp/x.png\n", wantErr: "unresolved secrets: NOPE"},
+		{
+			name:    "missing config",
+			yaml:    "",
+			wantErr: "no such file",
+		},
+		{
+			name:    "unknown display kind",
+			yaml:    "displays:\n  - kind: hologram\n",
+			wantErr: `unknown kind "hologram" (known: pngfile)`,
+		},
+		{
+			name:    "unknown source kind",
+			yaml:    "sources:\n  - kind: zwave\ndisplays:\n  - kind: pngfile\n    path: /tmp/x.png\n",
+			wantErr: `unknown kind "zwave"`,
+		},
+		{
+			name:    "unknown scene",
+			yaml:    "displays:\n  - kind: pngfile\n    path: /tmp/x.png\n    scenes: [galaxy]\n",
+			wantErr: `scene galaxy`,
+		},
+		{
+			name:    "unknown language",
+			yaml:    "language: xx\ndisplays:\n  - kind: pngfile\n    path: /tmp/x.png\n",
+			wantErr: `language "xx"`,
+		},
+		{
+			name: "unresolved secret",
+			yaml: "sources:\n  - kind: tuya\n    access_id: ${NOPE}\n    access_key: ${NOPE}\ndisplays:\n" +
+				"  - kind: pngfile\n    path: /tmp/x.png\n",
+			wantErr: "unresolved secrets: NOPE",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -122,7 +167,12 @@ func TestRun(t *testing.T) {
 			if tt.yaml != "" {
 				path = writeConfig(t, t.TempDir(), tt.yaml)
 			}
-			err := Run(t.Context(), Options{ConfigPath: path, Check: true, Lookup: config.MapLookup(nil), LogOutput: io.Discard})
+			err := Run(t.Context(), Options{
+				ConfigPath: path,
+				Check:      true,
+				Lookup:     config.MapLookup(nil),
+				LogOutput:  io.Discard,
+			})
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("Run = %v, want containing %q", err, tt.wantErr)
 			}
@@ -150,7 +200,13 @@ func TestRunAssembler(t *testing.T) {
 	path := pngConfig(t, t.TempDir(), "")
 	a := &assembling{}
 	mods := append(enabled(), a)
-	if err := Run(t.Context(), Options{ConfigPath: path, Check: true, Lookup: config.MapLookup(nil), LogOutput: io.Discard, Modules: mods}); err != nil {
+	if err := Run(t.Context(), Options{
+		ConfigPath: path,
+		Check:      true,
+		Lookup:     config.MapLookup(nil),
+		LogOutput:  io.Discard,
+		Modules:    mods,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if !a.assembled {

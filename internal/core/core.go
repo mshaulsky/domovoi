@@ -38,9 +38,11 @@ type Core struct {
 
 // Config tunes persistence.
 type Config struct {
-	Heartbeat  time.Duration // an unchanged series still gets a row this often; defaults to DefaultHeartbeat
-	Retention  time.Duration // readings and events older than this are pruned daily; defaults to DefaultRetention
-	ClockFloor time.Time     // nothing is persisted while the clock reads earlier than this (no RTC, NTP not yet synced)
+	Heartbeat time.Duration // an unchanged series still gets a row this often; defaults to DefaultHeartbeat
+	Retention time.Duration // readings and events older than this are pruned daily; defaults to DefaultRetention
+	// nothing is persisted while the clock reads earlier than this (no RTC,
+	// NTP not yet synced)
+	ClockFloor time.Time
 }
 
 // seriesKey identifies one series of readings.
@@ -121,7 +123,17 @@ func (c *Core) Batch(name string, b source.Batch) {
 	for _, e := range events {
 		c.journal(e)
 	}
-	c.log.Debug("batch applied", "source", name, "devices", len(b.Devices), "readings", len(b.Readings), "changes", len(changes))
+	c.log.Debug(
+		"batch applied",
+		"source",
+		name,
+		"devices",
+		len(b.Devices),
+		"readings",
+		len(b.Readings),
+		"changes",
+		len(changes),
+	)
 	c.persist(b.Devices, b.Readings, changes, events, now)
 	c.settle(name, true)
 }

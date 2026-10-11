@@ -25,7 +25,13 @@ func New(db *sql.DB) *Store {
 // Persist writes one batch atomically: devices upserted as seen at `at`,
 // readings written, events journalled. Nothing is written if any part
 // fails.
-func (s *Store) Persist(ctx context.Context, devs []model.Device, rs []model.Reading, evs []model.Event, at time.Time) error {
+func (s *Store) Persist(
+	ctx context.Context,
+	devs []model.Device,
+	rs []model.Reading,
+	evs []model.Event,
+	at time.Time,
+) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("store: begin: %w", err)
@@ -71,7 +77,9 @@ func (s *Store) Prune(ctx context.Context, before time.Time) (int64, error) {
 	defer tx.Rollback() //nolint:errcheck // a no-op after Commit; the error of a failed rollback is the original one
 	var total int64
 	for _, prune := range []func(context.Context, time.Time) (int64, error){
-		readings.New(tx).Prune, events.New(tx).Prune, devices.New(tx).Prune,
+		readings.New(tx).Prune,
+		events.New(tx).Prune,
+		devices.New(tx).Prune,
 	} {
 		n, err := prune(ctx, before)
 		if err != nil {
@@ -87,7 +95,12 @@ func (s *Store) Prune(ctx context.Context, before time.Time) (int64, error) {
 
 // Extremes returns the lowest and highest value of a numeric series since
 // a moment; ok is false without data.
-func (s *Store) Extremes(ctx context.Context, id model.DeviceID, m model.Metric, since time.Time) (lo, hi float64, ok bool, err error) {
+func (s *Store) Extremes(
+	ctx context.Context,
+	id model.DeviceID,
+	m model.Metric,
+	since time.Time,
+) (lo, hi float64, ok bool, err error) {
 	l, h, ok, err := readings.New(s.db).Extremes(ctx, id, m, since)
 	if err != nil || !ok {
 		return 0, 0, false, err
@@ -97,7 +110,12 @@ func (s *Store) Extremes(ctx context.Context, id model.DeviceID, m model.Metric,
 
 // Trend returns how much a numeric series changed since a moment: the
 // newest value minus the value back then; ok is false without both.
-func (s *Store) Trend(ctx context.Context, id model.DeviceID, m model.Metric, since time.Time) (delta float64, ok bool, err error) {
+func (s *Store) Trend(
+	ctx context.Context,
+	id model.DeviceID,
+	m model.Metric,
+	since time.Time,
+) (delta float64, ok bool, err error) {
 	repo := readings.New(s.db)
 	now, ok, err := repo.Last(ctx, id, m)
 	if err != nil || !ok {

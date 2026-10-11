@@ -113,12 +113,46 @@ func TestNew(t *testing.T) {
 		locale  Locale
 		wantErr string
 	}{
-		{name: "valid", cfg: Config{Name: "hall", Tick: time.Minute}, scenes: 1, locale: english},
-		{name: "name required", cfg: Config{Tick: time.Minute}, scenes: 1, locale: english, wantErr: "name is required"},
-		{name: "tick required", cfg: Config{Name: "hall"}, scenes: 1, locale: english, wantErr: "tick must be positive"},
-		{name: "scene required", cfg: Config{Name: "hall", Tick: time.Minute}, scenes: 0, locale: english, wantErr: "at least one scene"},
-		{name: "locale required", cfg: Config{Name: "hall", Tick: time.Minute}, scenes: 1, wantErr: "locale is required"},
-		{name: "bundle required", cfg: Config{Name: "hall", Tick: time.Minute}, scenes: 1, locale: NewFixedLocale(nil, nil), wantErr: "language bundle is required"},
+		{
+			name:   "valid",
+			cfg:    Config{Name: "hall", Tick: time.Minute},
+			scenes: 1,
+			locale: english,
+		},
+		{
+			name:    "name required",
+			cfg:     Config{Tick: time.Minute},
+			scenes:  1,
+			locale:  english,
+			wantErr: "name is required",
+		},
+		{
+			name:    "tick required",
+			cfg:     Config{Name: "hall"},
+			scenes:  1,
+			locale:  english,
+			wantErr: "tick must be positive",
+		},
+		{
+			name:    "scene required",
+			cfg:     Config{Name: "hall", Tick: time.Minute},
+			scenes:  0,
+			locale:  english,
+			wantErr: "at least one scene",
+		},
+		{
+			name:    "locale required",
+			cfg:     Config{Name: "hall", Tick: time.Minute},
+			scenes:  1,
+			wantErr: "locale is required",
+		},
+		{
+			name:    "bundle required",
+			cfg:     Config{Name: "hall", Tick: time.Minute},
+			scenes:  1,
+			locale:  NewFixedLocale(nil, nil),
+			wantErr: "language bundle is required",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -161,12 +195,13 @@ func TestCoordinatorRender(t *testing.T) {
 			name: "first frame is shown in full",
 			setup: func(t *testing.T, d deps, c *Coordinator) {
 				d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).Return(frame(0), nil)
-				d.disp.EXPECT().Show(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, f display.Frame) error {
-					if f.Mode != display.ModeFull || f.Image == nil {
-						t.Errorf("frame = %+v, want full with image", f)
-					}
-					return nil
-				})
+				d.disp.EXPECT().Show(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, f display.Frame) error {
+						if f.Mode != display.ModeFull || f.Image == nil {
+							t.Errorf("frame = %+v, want full with image", f)
+						}
+						return nil
+					})
 			},
 		},
 		{
@@ -217,7 +252,8 @@ func TestCoordinatorRender(t *testing.T) {
 				gomock.InOrder(
 					d.disp.EXPECT().Show(gomock.Any(), gomock.Any()).Return(nil),
 					d.disp.EXPECT().Show(gomock.Any(), gomock.Any()).Return(boom),
-					d.disp.EXPECT().Show(gomock.Any(), gomock.Any()).Return(nil), // same pixels, shown again: the glass was unknown
+					// same pixels, shown again: the glass was unknown
+					d.disp.EXPECT().Show(gomock.Any(), gomock.Any()).Return(nil),
 				)
 				if err := c.Render(t.Context()); err != nil {
 					t.Fatal(err)
@@ -258,22 +294,38 @@ func TestCoordinatorRenderView(t *testing.T) {
 		now := time.Now()
 		d := newDeps(t, 1)
 		d.state.ApplyDevices([]model.Device{{ID: "tuya:a", Name: "A"}})
-		d.state.ApplyReadings([]model.Reading{{Device: "tuya:a", Metric: model.Temperature, Value: model.NumberValue(21), At: now}})
+		d.state.ApplyReadings([]model.Reading{
+			{
+				Device: "tuya:a",
+				Metric: model.Temperature,
+				Value:  model.NumberValue(21),
+				At:     now,
+			},
+		})
 		d.state.SetHealth("tuya", nil, now)
 		d.state.SetHealth("aqara", errors.New("down"), now)
 		almaty := time.FixedZone("Asia/Almaty", 5*3600)
 		d.locale = NewFixedLocale(bundle(t), almaty)
 		h := NewMockHistory(d.ctrl)
 		d.history = h
-		h.EXPECT().Extremes(gomock.Any(), model.DeviceID("tuya:a"), model.Temperature, gomock.Any()).Return(19.5, 22.0, true, nil)
-		h.EXPECT().Trend(gomock.Any(), model.DeviceID("tuya:a"), model.Temperature, now.Add(-trendWindow)).Return(0.4, true, nil)
-		h.EXPECT().Events(gomock.Any(), now.Add(-eventsWindow), eventsLimit).Return([]model.Event{{Device: "tuya:a", Kind: model.EventOnline, At: now}}, nil)
+		h.EXPECT().Extremes(gomock.Any(), model.DeviceID("tuya:a"), model.Temperature, gomock.Any()).
+			Return(19.5, 22.0, true, nil)
+		h.EXPECT().Trend(gomock.Any(), model.DeviceID("tuya:a"), model.Temperature, now.Add(-trendWindow)).
+			Return(0.4, true, nil)
+		h.EXPECT().Events(gomock.Any(), now.Add(-eventsWindow), eventsLimit).Return([]model.Event{
+			{
+				Device: "tuya:a",
+				Kind:   model.EventOnline,
+				At:     now,
+			},
+		}, nil)
 		c := d.coordinator(t, Config{})
 		var got scene.View
-		d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).DoAndReturn(func(_ display.Surface, v scene.View) (*image.Paletted, error) {
-			got = v
-			return frame(0), nil
-		})
+		d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).
+			DoAndReturn(func(_ display.Surface, v scene.View) (*image.Paletted, error) {
+				got = v
+				return frame(0), nil
+			})
 		d.disp.EXPECT().Show(gomock.Any(), gomock.Any()).Return(nil)
 		if err := c.Render(t.Context()); err != nil {
 			t.Fatal(err)
@@ -287,10 +339,12 @@ func TestCoordinatorRenderView(t *testing.T) {
 		if r, ok := got.Reading("tuya:a", model.Temperature); !ok || r.Value.Num != 21 {
 			t.Errorf("reading = %+v, %t", r, ok)
 		}
-		if ex := got.Extremes["tuya:a"][model.Temperature]; ex.Min != 19.5 || ex.Max != 22 || got.Trends["tuya:a"][model.Temperature] != 0.4 || len(got.Events) != 1 {
+		if ex := got.Extremes["tuya:a"][model.Temperature]; ex.Min != 19.5 || ex.Max != 22 ||
+			got.Trends["tuya:a"][model.Temperature] != 0.4 || len(got.Events) != 1 {
 			t.Errorf("history = extremes %+v trends %v events %v", ex, got.Trends, got.Events)
 		}
-		if len(got.Sources) != 2 || got.Sources[0].Name != "aqara" || !got.Sources[0].Stale || got.Sources[1].Name != "tuya" || got.Sources[1].Stale {
+		if len(got.Sources) != 2 || got.Sources[0].Name != "aqara" || !got.Sources[0].Stale ||
+			got.Sources[1].Name != "tuya" || got.Sources[1].Stale {
 			t.Errorf("sources = %+v", got.Sources)
 		}
 	})
@@ -302,17 +356,33 @@ func TestCoordinatorRenderStarting(t *testing.T) {
 		setup func(st *state.State, now time.Time)
 		want  bool
 	}{
-		{name: "no sources configured", setup: func(*state.State, time.Time) {}, want: false},
-		{name: "configured, none answered", setup: func(st *state.State, _ time.Time) { st.SetStaleAfter("tuya", time.Minute) }, want: true},
-		{name: "one failed", setup: func(st *state.State, now time.Time) {
-			st.SetStaleAfter("tuya", time.Minute)
-			st.SetHealth("tuya", errors.New("down"), now)
-		}, want: false},
-		{name: "one succeeded", setup: func(st *state.State, now time.Time) {
-			st.SetStaleAfter("tuya", time.Minute)
-			st.SetStaleAfter("aqara", time.Minute)
-			st.SetHealth("tuya", nil, now)
-		}, want: false},
+		{
+			name:  "no sources configured",
+			setup: func(*state.State, time.Time) {},
+			want:  false,
+		},
+		{
+			name:  "configured, none answered",
+			setup: func(st *state.State, _ time.Time) { st.SetStaleAfter("tuya", time.Minute) },
+			want:  true,
+		},
+		{
+			name: "one failed",
+			setup: func(st *state.State, now time.Time) {
+				st.SetStaleAfter("tuya", time.Minute)
+				st.SetHealth("tuya", errors.New("down"), now)
+			},
+			want: false,
+		},
+		{
+			name: "one succeeded",
+			setup: func(st *state.State, now time.Time) {
+				st.SetStaleAfter("tuya", time.Minute)
+				st.SetStaleAfter("aqara", time.Minute)
+				st.SetHealth("tuya", nil, now)
+			},
+			want: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -321,10 +391,11 @@ func TestCoordinatorRenderStarting(t *testing.T) {
 				tt.setup(d.state, time.Now())
 				c := d.coordinator(t, Config{})
 				var got scene.View
-				d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).DoAndReturn(func(_ display.Surface, v scene.View) (*image.Paletted, error) {
-					got = v
-					return frame(0), nil
-				})
+				d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).
+					DoAndReturn(func(_ display.Surface, v scene.View) (*image.Paletted, error) {
+						got = v
+						return frame(0), nil
+					})
 				d.disp.EXPECT().Show(gomock.Any(), gomock.Any()).Return(nil)
 				if err := c.Render(t.Context()); err != nil {
 					t.Fatal(err)
@@ -366,10 +437,11 @@ func TestCoordinatorRun(t *testing.T) {
 			d := newDeps(t, 1)
 			c := d.coordinator(t, Config{StartGrace: 30 * time.Second})
 			rendered := make(chan time.Time, 8)
-			d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).DoAndReturn(func(_ display.Surface, v scene.View) (*image.Paletted, error) {
-				rendered <- v.Now
-				return frame(len(rendered) % 8), nil
-			}).AnyTimes()
+			d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).
+				DoAndReturn(func(_ display.Surface, v scene.View) (*image.Paletted, error) {
+					rendered <- v.Now
+					return frame(len(rendered) % 8), nil
+				}).AnyTimes()
 			d.disp.EXPECT().Show(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 			ctx, cancel := context.WithCancel(t.Context())
 			done := make(chan error, 1)
@@ -404,10 +476,11 @@ func TestCoordinatorRun(t *testing.T) {
 			d := newDeps(t, 1)
 			c := d.coordinator(t, Config{})
 			rendered := make(chan struct{}, 8)
-			d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).DoAndReturn(func(display.Surface, scene.View) (*image.Paletted, error) {
-				rendered <- struct{}{}
-				return frame(len(rendered) % 8), nil
-			}).AnyTimes()
+			d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).
+				DoAndReturn(func(display.Surface, scene.View) (*image.Paletted, error) {
+					rendered <- struct{}{}
+					return frame(len(rendered) % 8), nil
+				}).AnyTimes()
 			d.disp.EXPECT().Show(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 			ctx, cancel := context.WithCancel(t.Context())
 			done := make(chan error, 1)
@@ -476,7 +549,8 @@ func TestCoordinatorRefresh(t *testing.T) {
 	d := newDeps(t, 1)
 	c := d.coordinator(t, Config{})
 	d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).Return(frame(0), nil).Times(2)
-	d.disp.EXPECT().Show(gomock.Any(), gomock.Any()).Return(nil).Times(2) // the same pixels shown twice: Refresh forgot the glass
+	// the same pixels shown twice: Refresh forgot the glass
+	d.disp.EXPECT().Show(gomock.Any(), gomock.Any()).Return(nil).Times(2)
 	if err := c.Render(t.Context()); err != nil {
 		t.Fatal(err)
 	}

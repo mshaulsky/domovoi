@@ -22,8 +22,14 @@ func New(db DBTX) *Repository {
 // Write appends events to the journal.
 func (r *Repository) Write(ctx context.Context, events []model.Event) error {
 	for _, e := range events {
-		if _, err := r.db.ExecContext(ctx, `INSERT INTO events (at, device, kind, detail) VALUES (?, ?, ?, ?)`,
-			e.At.Unix(), nullable(string(e.Device)), string(e.Kind), nullable(e.Detail)); err != nil {
+		if _, err := r.db.ExecContext(
+			ctx,
+			`INSERT INTO events (at, device, kind, detail) VALUES (?, ?, ?, ?)`,
+			e.At.Unix(),
+			nullable(string(e.Device)),
+			string(e.Kind),
+			nullable(e.Detail),
+		); err != nil {
 			return fmt.Errorf("events: write %s: %w", e.Kind, err)
 		}
 	}

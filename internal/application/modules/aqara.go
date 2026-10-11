@@ -32,7 +32,14 @@ type aqaraSection struct {
 }
 
 // aqaraRegions are the values the login accepts.
-var aqaraRegions = []string{aqaramcp.RegionEU, aqaramcp.RegionRU, aqaramcp.RegionUS, aqaramcp.RegionCN, aqaramcp.RegionKR, aqaramcp.RegionSG}
+var aqaraRegions = []string{
+	aqaramcp.RegionEU,
+	aqaramcp.RegionRU,
+	aqaramcp.RegionUS,
+	aqaramcp.RegionCN,
+	aqaramcp.RegionKR,
+	aqaramcp.RegionSG,
+}
 
 // Name returns the module name.
 func (Aqara) Name() string {

@@ -40,11 +40,25 @@ func TestOverviewRender(t *testing.T) {
 		surface display.Surface
 		mutate  func(v *View)
 	}{
-		{name: "full_ru", lang: "ru", surface: surface(800, 480, false)},
-		{name: "full_en", lang: "en", surface: surface(800, 480, false)},
-		{name: "mono_small", lang: "en", surface: surface(400, 300, true)},
 		{
-			name: "no_alerts_no_hallway", lang: "ru", surface: surface(800, 480, false),
+			name:    "full_ru",
+			lang:    "ru",
+			surface: surface(800, 480, false),
+		},
+		{
+			name:    "full_en",
+			lang:    "en",
+			surface: surface(800, 480, false),
+		},
+		{
+			name:    "mono_small",
+			lang:    "en",
+			surface: surface(400, 300, true),
+		},
+		{
+			name:    "no_alerts_no_hallway",
+			lang:    "ru",
+			surface: surface(800, 480, false),
 			mutate: func(v *View) {
 				v.Alerts = nil
 				v.Devices = v.Devices[:5]
@@ -52,14 +66,19 @@ func TestOverviewRender(t *testing.T) {
 			},
 		},
 		{
-			name: "seven_tiles", lang: "ru", surface: surface(800, 480, false),
+			name:    "seven_tiles",
+			lang:    "ru",
+			surface: surface(800, 480, false),
 			mutate: func(v *View) {
 				// A sixth room takes the grid to four columns.
 				const id model.DeviceID = "tuya:hallway"
 				v.Devices = append(v.Devices, model.Device{ID: id, Name: "Прихожая", Kind: model.KindClimateSensor})
 				v.Readings[id] = map[model.Metric]model.Reading{}
 				for m, val := range map[model.Metric]model.Value{
-					model.Temperature: model.NumberValue(22.4), model.Humidity: model.NumberValue(53), model.Battery: model.NumberValue(100), model.Online: model.BoolValue(true),
+					model.Temperature: model.NumberValue(22.4),
+					model.Humidity:    model.NumberValue(53),
+					model.Battery:     model.NumberValue(100),
+					model.Online:      model.BoolValue(true),
 				} {
 					v.Readings[id][m] = model.Reading{Device: id, Metric: m, Value: val, At: epoch}
 				}
@@ -69,7 +88,9 @@ func TestOverviewRender(t *testing.T) {
 			},
 		},
 		{
-			name: "restored", lang: "ru", surface: surface(800, 480, false),
+			name:    "restored",
+			lang:    "ru",
+			surface: surface(800, 480, false),
 			mutate: func(v *View) {
 				v.Restored = true
 				v.Alerts, v.Events = nil, nil
@@ -79,7 +100,9 @@ func TestOverviewRender(t *testing.T) {
 			},
 		},
 		{
-			name: "starting", lang: "en", surface: surface(800, 480, false),
+			name:    "starting",
+			lang:    "en",
+			surface: surface(800, 480, false),
 			mutate: func(v *View) {
 				v.Devices, v.Readings, v.Alerts, v.Events = nil, nil, nil, nil
 				v.Sources = []SourceStatus{{Name: "tuya", Stale: true}}

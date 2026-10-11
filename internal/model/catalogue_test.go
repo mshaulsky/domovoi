@@ -9,9 +9,23 @@ func TestLookup(t *testing.T) {
 		want   MetricInfo
 		wantOK bool
 	}{
-		{name: "temperature", metric: Temperature, want: MetricInfo{Kind: Number, Unit: "°C"}, wantOK: true},
-		{name: "leak", metric: Leak, want: MetricInfo{Kind: Bool, OnRise: EventLeakStarted, OnFall: EventLeakEnded}, wantOK: true},
-		{name: "unknown", metric: "foo", wantOK: false},
+		{
+			name:   "temperature",
+			metric: Temperature,
+			want:   MetricInfo{Kind: Number, Unit: "°C"},
+			wantOK: true,
+		},
+		{
+			name:   "leak",
+			metric: Leak,
+			want:   MetricInfo{Kind: Bool, OnRise: EventLeakStarted, OnFall: EventLeakEnded},
+			wantOK: true,
+		},
+		{
+			name:   "unknown",
+			metric: "foo",
+			wantOK: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -54,14 +68,66 @@ func TestMetricTransition(t *testing.T) {
 		want     EventKind
 		wantOK   bool
 	}{
-		{name: "unlocked", metric: Locked, old: BoolValue(true), now: BoolValue(false), want: EventUnlocked, wantOK: true},
-		{name: "locked", metric: Locked, old: BoolValue(false), now: BoolValue(true), want: EventLocked, wantOK: true},
-		{name: "leak started", metric: Leak, old: BoolValue(false), now: BoolValue(true), want: EventLeakStarted, wantOK: true},
-		{name: "went offline", metric: Online, old: BoolValue(true), now: BoolValue(false), want: EventOffline, wantOK: true},
-		{name: "no change", metric: Leak, old: BoolValue(true), now: BoolValue(true), wantOK: false},
-		{name: "number metric", metric: Temperature, old: NumberValue(1), now: NumberValue(2), wantOK: false},
-		{name: "wrong value kind", metric: Leak, old: NumberValue(0), now: NumberValue(1), wantOK: false},
-		{name: "unknown metric", metric: "foo", old: BoolValue(false), now: BoolValue(true), wantOK: false},
+		{
+			name:   "unlocked",
+			metric: Locked,
+			old:    BoolValue(true),
+			now:    BoolValue(false),
+			want:   EventUnlocked,
+			wantOK: true,
+		},
+		{
+			name:   "locked",
+			metric: Locked,
+			old:    BoolValue(false),
+			now:    BoolValue(true),
+			want:   EventLocked,
+			wantOK: true,
+		},
+		{
+			name:   "leak started",
+			metric: Leak,
+			old:    BoolValue(false),
+			now:    BoolValue(true),
+			want:   EventLeakStarted,
+			wantOK: true,
+		},
+		{
+			name:   "went offline",
+			metric: Online,
+			old:    BoolValue(true),
+			now:    BoolValue(false),
+			want:   EventOffline,
+			wantOK: true,
+		},
+		{
+			name:   "no change",
+			metric: Leak,
+			old:    BoolValue(true),
+			now:    BoolValue(true),
+			wantOK: false,
+		},
+		{
+			name:   "number metric",
+			metric: Temperature,
+			old:    NumberValue(1),
+			now:    NumberValue(2),
+			wantOK: false,
+		},
+		{
+			name:   "wrong value kind",
+			metric: Leak,
+			old:    NumberValue(0),
+			now:    NumberValue(1),
+			wantOK: false,
+		},
+		{
+			name:   "unknown metric",
+			metric: "foo",
+			old:    BoolValue(false),
+			now:    BoolValue(true),
+			wantOK: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

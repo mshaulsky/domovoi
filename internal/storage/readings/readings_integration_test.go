@@ -25,7 +25,11 @@ var (
 // openDB opens a fresh database with the two devices the series refer to.
 func openDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "domovoi.db"), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	db, err := sqlite.Open(
+		t.Context(),
+		filepath.Join(t.TempDir(), "domovoi.db"),
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +72,12 @@ func TestRepositoryWrite(t *testing.T) {
 		t.Errorf("series = %d rows = %d, want 3 and 3", series, rows)
 	}
 	var unit string
-	if err := db.QueryRowContext(t.Context(), `SELECT unit FROM series WHERE device = ? AND metric = ?`, string(hall.ID), string(model.Temperature)).Scan(&unit); err != nil || unit != "°C" {
+	if err := db.QueryRowContext(
+		t.Context(),
+		`SELECT unit FROM series WHERE device = ? AND metric = ?`,
+		string(hall.ID),
+		string(model.Temperature),
+	).Scan(&unit); err != nil || unit != "°C" {
 		t.Errorf("unit = %q, %v", unit, err)
 	}
 	if err := r.Write(t.Context(), nil); err != nil {
@@ -92,7 +101,8 @@ func TestRepositorySeries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pts) != 2 || !samePoint(pts[0], epoch.Add(-time.Hour), model.NumberValue(21)) || !samePoint(pts[1], epoch, model.NumberValue(22)) {
+	if len(pts) != 2 || !samePoint(pts[0], epoch.Add(-time.Hour), model.NumberValue(21)) ||
+		!samePoint(pts[1], epoch, model.NumberValue(22)) {
 		t.Errorf("Series = %+v", pts)
 	}
 	if pts, err := r.Series(t.Context(), lock.ID, model.Locked, epoch.Add(-time.Hour)); err != nil || len(pts) != 0 {
@@ -113,7 +123,8 @@ func TestRepositoryExtremes(t *testing.T) {
 		t.Fatal(err)
 	}
 	lo, hi, ok, err := r.Extremes(t.Context(), hall.ID, model.Temperature, epoch.Add(-12*time.Hour))
-	if err != nil || !ok || !samePoint(lo, epoch.Add(-3*time.Hour), model.NumberValue(19.5)) || !samePoint(hi, epoch.Add(-2*time.Hour), model.NumberValue(23)) {
+	if err != nil || !ok || !samePoint(lo, epoch.Add(-3*time.Hour), model.NumberValue(19.5)) ||
+		!samePoint(hi, epoch.Add(-2*time.Hour), model.NumberValue(23)) {
 		t.Errorf("Extremes = %+v %+v %t %v", lo, hi, ok, err)
 	}
 	if _, _, ok, err := r.Extremes(t.Context(), hall.ID, model.Humidity, epoch); ok || err != nil {
@@ -196,7 +207,8 @@ func TestRepositoryLastAll(t *testing.T) {
 		t.Fatalf("LastAll = %d readings, want %d: %+v", len(got), len(want), got)
 	}
 	for i := range want {
-		if got[i].Device != want[i].Device || got[i].Metric != want[i].Metric || !got[i].Value.Equal(want[i].Value) || !got[i].At.Equal(want[i].At) {
+		if got[i].Device != want[i].Device || got[i].Metric != want[i].Metric ||
+			!got[i].Value.Equal(want[i].Value) || !got[i].At.Equal(want[i].At) {
 			t.Errorf("reading %d = %+v, want %+v", i, got[i], want[i])
 		}
 	}
@@ -218,11 +230,16 @@ func TestRepositoryPrune(t *testing.T) {
 	if err != nil || n != 3 {
 		t.Fatalf("Prune = %d, %v; want 3", n, err)
 	}
-	if pts, err := r.Series(t.Context(), hall.ID, model.Temperature, epoch.Add(-72*time.Hour)); err != nil || len(pts) != 1 {
+	if pts, err := r.Series(t.Context(), hall.ID, model.Temperature, epoch.Add(-72*time.Hour)); err != nil ||
+		len(pts) != 1 {
 		t.Errorf("after prune = %+v, %v", pts, err)
 	}
 	var series int
-	if err := db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM series WHERE device = ?`, string(hall.ID)).Scan(&series); err != nil || series != 1 {
+	if err := db.QueryRowContext(
+		t.Context(),
+		`SELECT COUNT(*) FROM series WHERE device = ?`,
+		string(hall.ID),
+	).Scan(&series); err != nil || series != 1 {
 		t.Errorf("series left = %d, %v; want 1 (the emptied one dropped)", series, err)
 	}
 }

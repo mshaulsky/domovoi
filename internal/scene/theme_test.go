@@ -15,11 +15,31 @@ func TestThemeFor(t *testing.T) {
 		want    Theme
 		wantErr bool
 	}{
-		{name: "three colour", palette: display.ThreeColour(), want: Theme{Paper: display.White, Ink: display.Black, Accent: display.Red}},
-		{name: "mono", palette: display.Mono(), want: Theme{Paper: display.White, Ink: display.Black, Accent: display.Black}},
-		{name: "order does not matter", palette: color.Palette{display.Red, display.Black, display.White}, want: Theme{Paper: display.White, Ink: display.Black, Accent: display.Red}},
-		{name: "grey is not an accent", palette: color.Palette{display.White, grey, display.Black}, want: Theme{Paper: display.White, Ink: display.Black, Accent: display.Black}},
-		{name: "too few colours", palette: color.Palette{display.White}, wantErr: true},
+		{
+			name:    "three colour",
+			palette: display.ThreeColour(),
+			want:    Theme{Paper: display.White, Ink: display.Black, Accent: display.Red},
+		},
+		{
+			name:    "mono",
+			palette: display.Mono(),
+			want:    Theme{Paper: display.White, Ink: display.Black, Accent: display.Black},
+		},
+		{
+			name:    "order does not matter",
+			palette: color.Palette{display.Red, display.Black, display.White},
+			want:    Theme{Paper: display.White, Ink: display.Black, Accent: display.Red},
+		},
+		{
+			name:    "grey is not an accent",
+			palette: color.Palette{display.White, grey, display.Black},
+			want:    Theme{Paper: display.White, Ink: display.Black, Accent: display.Black},
+		},
+		{
+			name:    "too few colours",
+			palette: color.Palette{display.White},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

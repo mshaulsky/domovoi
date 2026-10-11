@@ -79,7 +79,16 @@ func NewFixedLocale(b *i18n.Bundle, loc *time.Location) FixedLocale {
 
 // New validates the config and prepares the coordinator; nothing is drawn
 // until Run or Render.
-func New(cfg Config, disp Display, scenes []Scene, st StateReader, locale Locale, history History, log *slog.Logger, m Metrics) (*Coordinator, error) {
+func New(
+	cfg Config,
+	disp Display,
+	scenes []Scene,
+	st StateReader,
+	locale Locale,
+	history History,
+	log *slog.Logger,
+	m Metrics,
+) (*Coordinator, error) {
 	if cfg.Name == "" {
 		return nil, errors.New("render: display name is required")
 	}

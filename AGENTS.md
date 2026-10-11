@@ -20,7 +20,7 @@ there: pin dependency versions that still build on 1.25 (check the
 ```sh
 make test              # go test -race ./...
 make test-integration  # plus //go:build integration tests (SQLite files, sockets)
-make lint              # golangci-lint v2.12.2 with --build-tags integration; must be 0 issues
+make lint              # golangci-lint v2.12.2 with --build-tags integration (lll, golines); must be 0 issues
 make generate          # gomock mocks from every interfaces.go (go tool mockgen)
 make release           # arm64 binary for the Pi
 go test ./internal/scene -update   # regenerate golden frames after an intended visual change
@@ -57,6 +57,10 @@ tree unchanged; CI diffs it.
   Prometheus. The one deliberate exception is `internal/storage`: the
   repositories and the `store` unit of work are exercised against a real
   SQLite file in integration tests and mock nothing (DESIGN.md, Testing).
+- A constructor assembles nothing: `New` takes its collaborators ready-made
+  (a client, a store, a policy) and validates them, it never builds another
+  dependency inside. Constructing and wiring happen in one place, the glue
+  in `internal/application` (`run.go`, `modules/*`), and in tests.
 - Declaration order in a file: struct → consts → vars → helper types →
   constructor → public methods → private. Wrap every error with context
   (`fmt.Errorf("tuya: list devices: %w", err)`). Doc comments on all
@@ -68,6 +72,11 @@ tree unchanged; CI diffs it.
   files, databases or sockets is an integration test in
   `*_integration_test.go` under `//go:build integration`, happy path only,
   no simulated DB failures. Repository packages get one such file each.
+- Lines stay within 120 columns (`lll`, `golines`, tabs count as four). A
+  list that spans lines has every element on its own line. A test table is
+  either all one-liners or all canonical multi-line cases: `{` alone, one
+  key per line, `},` alone; a multi-line case never closes two levels with
+  `}},`. golines does not enforce the table rule, review does.
 - Modern Go only: `wg.Go`, `slices`/`maps`, `for i := range n`,
   `t.Context()`, `cmp.Or`; the `modernize`, `intrange` and `usetesting`
   linters keep it so.

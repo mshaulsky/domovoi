@@ -38,43 +38,59 @@ func New() *Registry {
 	r := &Registry{
 		reg: prometheus.NewRegistry(),
 		polls: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: namespace, Name: "polls_total",
-			Help: "Polls of a source by result.",
+			Namespace: namespace,
+			Name:      "polls_total",
+			Help:      "Polls of a source by result.",
 		}, []string{"source", "result"}),
 		pollDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: namespace, Name: "poll_duration_seconds",
-			Help: "Time spent polling a source.", Buckets: pollBuckets,
+			Namespace: namespace,
+			Name:      "poll_duration_seconds",
+			Help:      "Time spent polling a source.",
+			Buckets:   pollBuckets,
 		}, []string{"source"}),
 		requests: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: namespace, Name: "requests_total",
-			Help: "Upstream requests made by a source.",
+			Namespace: namespace,
+			Name:      "requests_total",
+			Help:      "Upstream requests made by a source.",
 		}, []string{"source"}),
 		events: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: namespace, Name: "events_total",
-			Help: "Journal events by kind.",
+			Namespace: namespace,
+			Name:      "events_total",
+			Help:      "Journal events by kind.",
 		}, []string{"kind"}),
 		renders: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: namespace, Name: "renders_total",
-			Help: "Frames shown on a display by refresh mode.",
+			Namespace: namespace,
+			Name:      "renders_total",
+			Help:      "Frames shown on a display by refresh mode.",
 		}, []string{"display", "mode"}),
 		renderDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: namespace, Name: "render_duration_seconds",
-			Help: "Time from render start to the display returning.", Buckets: renderBuckets,
+			Namespace: namespace,
+			Name:      "render_duration_seconds",
+			Help:      "Time from render start to the display returning.",
+			Buckets:   renderBuckets,
 		}, []string{"display"}),
 		renderErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: namespace, Name: "render_errors_total",
-			Help: "Frames a display failed to show.",
+			Namespace: namespace,
+			Name:      "render_errors_total",
+			Help:      "Frames a display failed to show.",
 		}, []string{"display"}),
 		storeErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: namespace, Name: "store_errors_total",
-			Help: "Storage operations that failed, by operation.",
+			Namespace: namespace,
+			Name:      "store_errors_total",
+			Help:      "Storage operations that failed, by operation.",
 		}, []string{"op"}),
 	}
 	r.reg.MustRegister(
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
-		r.polls, r.pollDuration, r.requests, r.events,
-		r.renders, r.renderDuration, r.renderErrors, r.storeErrors,
+		r.polls,
+		r.pollDuration,
+		r.requests,
+		r.events,
+		r.renders,
+		r.renderDuration,
+		r.renderErrors,
+		r.storeErrors,
 	)
 	return r
 }

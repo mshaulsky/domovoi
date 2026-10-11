@@ -130,7 +130,12 @@ func (s *Source) Poll(ctx context.Context) (source.Batch, error) {
 		for _, d := range devices {
 			id := model.NewDeviceID(s.cfg.Name, d.ID)
 			batch.Devices = append(batch.Devices, model.Device{ID: id, Name: d.Name, Kind: kindOf(d.Category)})
-			batch.Readings = append(batch.Readings, model.Reading{Device: id, Metric: model.Online, Value: model.BoolValue(d.Online), At: stamp(d, now)})
+			batch.Readings = append(batch.Readings, model.Reading{
+				Device: id,
+				Metric: model.Online,
+				Value:  model.BoolValue(d.Online),
+				At:     stamp(d, now),
+			})
 		}
 	}
 	ids := make([]string, 0, len(devices))
@@ -219,7 +224,17 @@ func (s *Source) specification(ctx context.Context, d tuyacloud.Device) (tuyaclo
 	if err != nil {
 		s.retryAt[d.ProductID] = time.Now().Add(specRetryAfter)
 		if !s.warned[d.ProductID] {
-			s.log.Warn("specification unavailable, numbers use default scales", "device", d.ID, "product", d.ProductID, "retry_in", specRetryAfter, "err", err)
+			s.log.Warn(
+				"specification unavailable, numbers use default scales",
+				"device",
+				d.ID,
+				"product",
+				d.ProductID,
+				"retry_in",
+				specRetryAfter,
+				"err",
+				err,
+			)
 			s.warned[d.ProductID] = true
 		}
 		return tuyacloud.Specification{}, false
@@ -231,7 +246,13 @@ func (s *Source) specification(ctx context.Context, d tuyacloud.Device) (tuyaclo
 }
 
 // convert maps one data point into a reading, or reports that it is dropped.
-func (s *Source) convert(id model.DeviceID, dp tuyacloud.DataPoint, spec tuyacloud.Specification, hasSpec bool, at time.Time) (model.Reading, bool) {
+func (s *Source) convert(
+	id model.DeviceID,
+	dp tuyacloud.DataPoint,
+	spec tuyacloud.Specification,
+	hasSpec bool,
+	at time.Time,
+) (model.Reading, bool) {
 	p, ok := points[dp.Code]
 	if !ok {
 		s.dropped(dp.Code)

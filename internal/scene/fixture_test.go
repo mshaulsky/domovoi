@@ -30,39 +30,133 @@ func fixture(t *testing.T, lang string) View {
 		t.Fatal(err)
 	}
 	devices := []model.Device{
-		{ID: "weather:home", Name: "Home", Kind: model.KindVirtual},
-		{ID: "tuya:office", Name: name("кабинет", "Office"), Room: "", Kind: model.KindClimateSensor},
-		{ID: "tuya:bedroom", Name: name("спальня", "Bedroom"), Kind: model.KindClimateSensor},
-		{ID: "tuya:hall", Name: name("Зал", "Living room"), Kind: model.KindClimateSensor},
-		{ID: "tuya:kitchen", Name: name("Кухня", "Kitchen"), Kind: model.KindClimateSensor},
-		{ID: "tuya:thermostat", Name: "Thermostat", Kind: model.KindThermostat},
-		{ID: "tuya:aquarium", Name: name("Розетка Аквариум", "Aquarium outlet"), Kind: model.KindOutlet},
-		{ID: "aqara:lock", Name: name("Дверной замок (U200)", "Door lock (U200)"), Room: name("Прихожая", "Hallway"), Kind: model.KindLock},
-		{ID: "aqara:washer", Name: name("Розетка стиралка", "Washer outlet"), Room: name("Прихожая", "Hallway"), Kind: model.KindOutlet},
-		{ID: "aqara:leak1", Name: name("Протечка стиралки", "Washer leak"), Room: name("Прихожая", "Hallway"), Kind: model.KindLeakSensor},
-		{ID: "aqara:leak2", Name: name("Протечка ванная", "Bathroom leak"), Room: name("Ванная", "Bathroom"), Kind: model.KindLeakSensor},
+		{
+			ID:   "weather:home",
+			Name: "Home",
+			Kind: model.KindVirtual,
+		},
+		{
+			ID:   "tuya:office",
+			Name: name("кабинет", "Office"),
+			Room: "",
+			Kind: model.KindClimateSensor,
+		},
+		{
+			ID:   "tuya:bedroom",
+			Name: name("спальня", "Bedroom"),
+			Kind: model.KindClimateSensor,
+		},
+		{
+			ID:   "tuya:hall",
+			Name: name("Зал", "Living room"),
+			Kind: model.KindClimateSensor,
+		},
+		{
+			ID:   "tuya:kitchen",
+			Name: name("Кухня", "Kitchen"),
+			Kind: model.KindClimateSensor,
+		},
+		{
+			ID:   "tuya:thermostat",
+			Name: "Thermostat",
+			Kind: model.KindThermostat,
+		},
+		{
+			ID:   "tuya:aquarium",
+			Name: name("Розетка Аквариум", "Aquarium outlet"),
+			Kind: model.KindOutlet,
+		},
+		{
+			ID:   "aqara:lock",
+			Name: name("Дверной замок (U200)", "Door lock (U200)"),
+			Room: name("Прихожая", "Hallway"),
+			Kind: model.KindLock,
+		},
+		{
+			ID:   "aqara:washer",
+			Name: name("Розетка стиралка", "Washer outlet"),
+			Room: name("Прихожая", "Hallway"),
+			Kind: model.KindOutlet,
+		},
+		{
+			ID:   "aqara:leak1",
+			Name: name("Протечка стиралки", "Washer leak"),
+			Room: name("Прихожая", "Hallway"),
+			Kind: model.KindLeakSensor,
+		},
+		{
+			ID:   "aqara:leak2",
+			Name: name("Протечка ванная", "Bathroom leak"),
+			Room: name("Ванная", "Bathroom"),
+			Kind: model.KindLeakSensor,
+		},
 	}
 	num := model.NumberValue
 	readings := map[model.DeviceID]map[model.Metric]model.Value{
 		"weather:home": {
-			model.Temperature: num(17.3), model.Humidity: num(62), model.WeatherCode: num(61),
-			model.PrecipitationProbability: num(40), model.WindSpeed: num(4), model.ForecastHigh: num(21),
-			model.ForecastLow: num(9), model.Sunrise: model.TextValue("06:41"), model.Sunset: model.TextValue("19:12"),
+			model.Temperature:              num(17.3),
+			model.Humidity:                 num(62),
+			model.WeatherCode:              num(61),
+			model.PrecipitationProbability: num(40),
+			model.WindSpeed:                num(4),
+			model.ForecastHigh:             num(21),
+			model.ForecastLow:              num(9),
+			model.Sunrise:                  model.TextValue("06:41"),
+			model.Sunset:                   model.TextValue("19:12"),
+			model.Online:                   model.BoolValue(true),
+		},
+		"tuya:office": {
+			model.Temperature: num(22.4),
+			model.Humidity:    num(48),
+			model.Battery:     num(87),
+			model.Online:      model.BoolValue(true),
+		},
+		"tuya:bedroom": {
+			model.Temperature: num(21.0),
+			model.Humidity:    num(51),
+			model.Battery:     num(12),
+			model.Online:      model.BoolValue(true),
+		},
+		"tuya:hall": {
+			model.Temperature: num(23.9),
+			model.Humidity:    num(44),
+			model.Battery:     num(64),
+			model.Online:      model.BoolValue(true),
+		},
+		"tuya:kitchen": {
+			model.Temperature: num(19.5),
+			model.Humidity:    num(58),
+			model.Battery:     num(90),
+			model.Online:      model.BoolValue(false),
+		},
+		"tuya:thermostat": {
+			model.Temperature:       num(19.0),
+			model.TargetTemperature: num(21.0),
+			model.Power:             model.BoolValue(true),
+			model.Heating:           model.BoolValue(true),
+			model.Online:            model.BoolValue(true),
+		},
+		"tuya:aquarium": {
+			model.Power:     model.BoolValue(true),
+			model.PowerDraw: num(28.4),
+			model.Online:    model.BoolValue(true),
+		},
+		"aqara:lock": {
+			model.Locked: model.BoolValue(false),
 			model.Online: model.BoolValue(true),
 		},
-		"tuya:office":  {model.Temperature: num(22.4), model.Humidity: num(48), model.Battery: num(87), model.Online: model.BoolValue(true)},
-		"tuya:bedroom": {model.Temperature: num(21.0), model.Humidity: num(51), model.Battery: num(12), model.Online: model.BoolValue(true)},
-		"tuya:hall":    {model.Temperature: num(23.9), model.Humidity: num(44), model.Battery: num(64), model.Online: model.BoolValue(true)},
-		"tuya:kitchen": {model.Temperature: num(19.5), model.Humidity: num(58), model.Battery: num(90), model.Online: model.BoolValue(false)},
-		"tuya:thermostat": {
-			model.Temperature: num(19.0), model.TargetTemperature: num(21.0),
-			model.Power: model.BoolValue(true), model.Heating: model.BoolValue(true), model.Online: model.BoolValue(true),
+		"aqara:washer": {
+			model.Power:  model.BoolValue(true),
+			model.Online: model.BoolValue(true),
 		},
-		"tuya:aquarium": {model.Power: model.BoolValue(true), model.PowerDraw: num(28.4), model.Online: model.BoolValue(true)},
-		"aqara:lock":    {model.Locked: model.BoolValue(false), model.Online: model.BoolValue(true)},
-		"aqara:washer":  {model.Power: model.BoolValue(true), model.Online: model.BoolValue(true)},
-		"aqara:leak1":   {model.Leak: model.BoolValue(true), model.Online: model.BoolValue(true)},
-		"aqara:leak2":   {model.Leak: model.BoolValue(false), model.Online: model.BoolValue(true)},
+		"aqara:leak1": {
+			model.Leak:   model.BoolValue(true),
+			model.Online: model.BoolValue(true),
+		},
+		"aqara:leak2": {
+			model.Leak:   model.BoolValue(false),
+			model.Online: model.BoolValue(true),
+		},
 	}
 	v := View{
 		Now:      epoch,
@@ -86,7 +180,13 @@ func fixture(t *testing.T, lang string) View {
 			"tuya:hall":    {model.Temperature: -0.5},
 			"tuya:kitchen": {model.Temperature: 0.1},
 		},
-		Alerts: []Alert{{Severity: SeverityUrgent, Message: name("Протечка стиралки", "Washer leak"), Since: epoch.Add(-3 * time.Minute)}},
+		Alerts: []Alert{
+			{
+				Severity: SeverityUrgent,
+				Message:  name("Протечка стиралки", "Washer leak"),
+				Since:    epoch.Add(-3 * time.Minute),
+			},
+		},
 		Events: []model.Event{
 			{Device: "aqara:lock", Kind: model.EventUnlocked, At: epoch.Add(-3 * time.Minute)},
 			{Device: "tuya:kitchen", Kind: model.EventOffline, At: epoch.Add(-25 * time.Minute)},

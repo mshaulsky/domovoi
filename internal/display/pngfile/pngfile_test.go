@@ -25,8 +25,16 @@ func TestNew(t *testing.T) {
 			cfg:  Config{Path: "/tmp/frame.png", Width: 250, Height: 122, Mono: true},
 			want: display.Surface{Bounds: image.Rect(0, 0, 250, 122), Palette: display.Mono()},
 		},
-		{name: "path required", cfg: Config{}, wantErr: "path is required"},
-		{name: "negative size", cfg: Config{Path: "x", Width: -1}, wantErr: "must be positive"},
+		{
+			name:    "path required",
+			cfg:     Config{},
+			wantErr: "path is required",
+		},
+		{
+			name:    "negative size",
+			cfg:     Config{Path: "x", Width: -1},
+			wantErr: "must be positive",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -25,8 +25,19 @@ const (
 
 // weatherConditions lists every condition, in declaration order.
 var weatherConditions = []WeatherCondition{
-	WeatherClear, WeatherMainlyClear, WeatherPartlyCloudy, WeatherOvercast, WeatherFog, WeatherDrizzle, WeatherRain,
-	WeatherFreezingRain, WeatherSnow, WeatherShowers, WeatherSnowShowers, WeatherThunderstorm, WeatherUnknown,
+	WeatherClear,
+	WeatherMainlyClear,
+	WeatherPartlyCloudy,
+	WeatherOvercast,
+	WeatherFog,
+	WeatherDrizzle,
+	WeatherRain,
+	WeatherFreezingRain,
+	WeatherSnow,
+	WeatherShowers,
+	WeatherSnowShowers,
+	WeatherThunderstorm,
+	WeatherUnknown,
 }
 
 // WeatherConditions lists every condition, for whatever must cover them

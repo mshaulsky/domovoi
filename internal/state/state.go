@@ -129,7 +129,12 @@ func (s *State) SetHealth(source string, err error, at time.Time) {
 // and their IDs are returned next to the changes, which are reported like
 // ApplyReadings. An empty list is distrusted — a cloud answering nothing is
 // far likelier than a home with nothing in it — and retires no one.
-func (s *State) Apply(source string, devices []model.Device, readings []model.Reading, at time.Time) ([]Change, []model.DeviceID) {
+func (s *State) Apply(
+	source string,
+	devices []model.Device,
+	readings []model.Reading,
+	at time.Time,
+) ([]Change, []model.DeviceID) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.applyDevices(devices)

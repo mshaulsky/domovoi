@@ -37,11 +37,30 @@ func TestTuyaRegister(t *testing.T) {
 		yaml    string
 		wantErr string
 	}{
-		{name: "valid", yaml: "sources:\n  - kind: tuya\n    access_id: ${ID}\n    access_key: ${KEY}\n    region: eu\n" + base},
-		{name: "default region", yaml: "sources:\n  - kind: tuya\n    access_id: ${ID}\n    access_key: ${KEY}\n" + base},
-		{name: "credentials required", yaml: "sources:\n  - kind: tuya\n    region: eu\n" + base, wantErr: "access_id and access_key are required"},
-		{name: "unknown region", yaml: "sources:\n  - kind: tuya\n    access_id: ${ID}\n    access_key: ${KEY}\n    region: mars\n" + base, wantErr: `unknown region "mars"`},
-		{name: "unknown option", yaml: "sources:\n  - kind: tuya\n    acess_id: ${ID}\n    access_key: ${KEY}\n" + base, wantErr: "field acess_id not found"},
+		{
+			name: "valid",
+			yaml: "sources:\n  - kind: tuya\n    access_id: ${ID}\n    access_key: ${KEY}\n    region: eu\n" + base,
+		},
+		{
+			name: "default region",
+			yaml: "sources:\n  - kind: tuya\n    access_id: ${ID}\n    access_key: ${KEY}\n" + base,
+		},
+		{
+			name:    "credentials required",
+			yaml:    "sources:\n  - kind: tuya\n    region: eu\n" + base,
+			wantErr: "access_id and access_key are required",
+		},
+		{
+			name: "unknown region",
+			yaml: "sources:\n  - kind: tuya\n    access_id: ${ID}\n    access_key: ${KEY}\n" +
+				"    region: mars\n" + base,
+			wantErr: `unknown region "mars"`,
+		},
+		{
+			name:    "unknown option",
+			yaml:    "sources:\n  - kind: tuya\n    acess_id: ${ID}\n    access_key: ${KEY}\n" + base,
+			wantErr: "field acess_id not found",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -82,17 +101,62 @@ func TestAqaraRegister(t *testing.T) {
 		yaml    string
 		wantErr string
 	}{
-		{name: "key", yaml: "sources:\n  - kind: aqara\n    api_key: ${KEY}\n" + base},
-		{name: "own endpoint", yaml: "sources:\n  - kind: aqara\n    api_key: ${KEY}\n    endpoint: http://localhost:9/mcp\n" + base},
-		{name: "account", yaml: "sources:\n  - kind: aqara\n    username: home@example.com\n    password_md5: 3cb4e732631f47e6eb961f34554b7cde\n    region: ru\n" + base},
-		{name: "the password itself is refused", yaml: "sources:\n  - kind: aqara\n    username: home@example.com\n    password_md5: ${KEY}\n    region: RU\n" + base, wantErr: "password MD5 must be 32 hex digits"},
-		{name: "key and account", yaml: "sources:\n  - kind: aqara\n    api_key: ${KEY}\n    username: home@example.com\n    password_md5: 3cb4e732631f47e6eb961f34554b7cde\n    region: RU\n" + base},
-		{name: "key or account required", yaml: "sources:\n  - kind: aqara\n" + base, wantErr: "api_key or an account (username, password_md5, region) is required"},
-		{name: "password without username", yaml: "sources:\n  - kind: aqara\n    password_md5: 3cb4e732631f47e6eb961f34554b7cde\n" + base, wantErr: "username is required with password_md5"},
-		{name: "account without password", yaml: "sources:\n  - kind: aqara\n    username: home@example.com\n    region: RU\n" + base, wantErr: "password_md5 is required with username"},
-		{name: "account without region", yaml: "sources:\n  - kind: aqara\n    username: home@example.com\n    password_md5: 3cb4e732631f47e6eb961f34554b7cde\n" + base, wantErr: "region is required with username"},
-		{name: "unknown region", yaml: "sources:\n  - kind: aqara\n    username: home@example.com\n    password_md5: 3cb4e732631f47e6eb961f34554b7cde\n    region: mars\n" + base, wantErr: `region "mars" is not one of EU, RU, US, CN, KR, SG`},
-		{name: "unknown option", yaml: "sources:\n  - kind: aqara\n    apikey: ${KEY}\n" + base, wantErr: "field apikey not found"},
+		{
+			name: "key",
+			yaml: "sources:\n  - kind: aqara\n    api_key: ${KEY}\n" + base,
+		},
+		{
+			name: "own endpoint",
+			yaml: "sources:\n  - kind: aqara\n    api_key: ${KEY}\n    endpoint: http://localhost:9/mcp\n" + base,
+		},
+		{
+			name: "account",
+			yaml: "sources:\n  - kind: aqara\n    username: home@example.com\n" +
+				"    password_md5: 3cb4e732631f47e6eb961f34554b7cde\n    region: ru\n" + base,
+		},
+		{
+			name: "the password itself is refused",
+			yaml: "sources:\n  - kind: aqara\n    username: home@example.com\n    password_md5: ${KEY}\n" +
+				"    region: RU\n" + base,
+			wantErr: "password MD5 must be 32 hex digits",
+		},
+		{
+			name: "key and account",
+			yaml: "sources:\n  - kind: aqara\n    api_key: ${KEY}\n    username: home@example.com\n" +
+				"    password_md5: 3cb4e732631f47e6eb961f34554b7cde\n    region: RU\n" + base,
+		},
+		{
+			name:    "key or account required",
+			yaml:    "sources:\n  - kind: aqara\n" + base,
+			wantErr: "api_key or an account (username, password_md5, region) is required",
+		},
+		{
+			name:    "password without username",
+			yaml:    "sources:\n  - kind: aqara\n    password_md5: 3cb4e732631f47e6eb961f34554b7cde\n" + base,
+			wantErr: "username is required with password_md5",
+		},
+		{
+			name:    "account without password",
+			yaml:    "sources:\n  - kind: aqara\n    username: home@example.com\n    region: RU\n" + base,
+			wantErr: "password_md5 is required with username",
+		},
+		{
+			name: "account without region",
+			yaml: "sources:\n  - kind: aqara\n    username: home@example.com\n" +
+				"    password_md5: 3cb4e732631f47e6eb961f34554b7cde\n" + base,
+			wantErr: "region is required with username",
+		},
+		{
+			name: "unknown region",
+			yaml: "sources:\n  - kind: aqara\n    username: home@example.com\n" +
+				"    password_md5: 3cb4e732631f47e6eb961f34554b7cde\n    region: mars\n" + base,
+			wantErr: `region "mars" is not one of EU, RU, US, CN, KR, SG`,
+		},
+		{
+			name:    "unknown option",
+			yaml:    "sources:\n  - kind: aqara\n    apikey: ${KEY}\n" + base,
+			wantErr: "field apikey not found",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -133,11 +197,31 @@ func TestWeatherRegister(t *testing.T) {
 		yaml    string
 		wantErr string
 	}{
-		{name: "valid", yaml: "timezone: Asia/Almaty\nsources:\n  - kind: weather\n    latitude: 43.25\n    longitude: 76.9\n" + base},
-		{name: "another endpoint", yaml: "sources:\n  - kind: weather\n    latitude: 43.25\n    longitude: 76.9\n    url: http://127.0.0.1:1/f\n" + base},
-		{name: "coordinates required", yaml: "sources:\n  - kind: weather\n    latitude: 43.25\n" + base, wantErr: "latitude and longitude are required"},
-		{name: "latitude out of range", yaml: "sources:\n  - kind: weather\n    latitude: 95\n    longitude: 76.9\n" + base, wantErr: "latitude 95 out of range"},
-		{name: "unknown option", yaml: "sources:\n  - kind: weather\n    lat: 43.25\n    longitude: 76.9\n" + base, wantErr: "field lat not found"},
+		{
+			name: "valid",
+			yaml: "timezone: Asia/Almaty\nsources:\n  - kind: weather\n    latitude: 43.25\n" +
+				"    longitude: 76.9\n" + base,
+		},
+		{
+			name: "another endpoint",
+			yaml: "sources:\n  - kind: weather\n    latitude: 43.25\n    longitude: 76.9\n" +
+				"    url: http://127.0.0.1:1/f\n" + base,
+		},
+		{
+			name:    "coordinates required",
+			yaml:    "sources:\n  - kind: weather\n    latitude: 43.25\n" + base,
+			wantErr: "latitude and longitude are required",
+		},
+		{
+			name:    "latitude out of range",
+			yaml:    "sources:\n  - kind: weather\n    latitude: 95\n    longitude: 76.9\n" + base,
+			wantErr: "latitude 95 out of range",
+		},
+		{
+			name:    "unknown option",
+			yaml:    "sources:\n  - kind: weather\n    lat: 43.25\n    longitude: 76.9\n" + base,
+			wantErr: "field lat not found",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -180,9 +264,21 @@ func TestPNGFileRegister(t *testing.T) {
 		yaml    string
 		wantErr string
 	}{
-		{name: "valid", yaml: "displays:\n  - kind: pngfile\n    path: /tmp/frame.png\n    width: 400\n    height: 300\n    mono: true\n"},
-		{name: "path required", yaml: base, wantErr: "path is required"},
-		{name: "unknown option", yaml: "displays:\n  - kind: pngfile\n    file: /tmp/frame.png\n", wantErr: "field file not found"},
+		{
+			name: "valid",
+			yaml: "displays:\n  - kind: pngfile\n    path: /tmp/frame.png\n    width: 400\n    height: 300\n" +
+				"    mono: true\n",
+		},
+		{
+			name:    "path required",
+			yaml:    base,
+			wantErr: "path is required",
+		},
+		{
+			name:    "unknown option",
+			yaml:    "displays:\n  - kind: pngfile\n    file: /tmp/frame.png\n",
+			wantErr: "field file not found",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

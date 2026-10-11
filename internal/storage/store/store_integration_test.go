@@ -53,7 +53,13 @@ func TestStorePersist(t *testing.T) {
 	// A second pass updates the device and replaces the row at the same time.
 	renamed := hall
 	renamed.Name = "Living room"
-	if err := s.Persist(t.Context(), []model.Device{renamed}, []model.Reading{num(hall.ID, model.Temperature, 21.7, epoch)}, nil, epoch.Add(time.Minute)); err != nil {
+	if err := s.Persist(
+		t.Context(),
+		[]model.Device{renamed},
+		[]model.Reading{num(hall.ID, model.Temperature, 21.7, epoch)},
+		nil,
+		epoch.Add(time.Minute),
+	); err != nil {
 		t.Fatal(err)
 	}
 	devs, err := devices.New(db).All(t.Context())
@@ -68,7 +74,8 @@ func TestStorePersist(t *testing.T) {
 		t.Errorf("last = %+v, %t, %v", last, ok, err)
 	}
 	got, err := events.New(db).Since(t.Context(), epoch.Add(-time.Hour), 10)
-	if err != nil || len(got) != 1 || got[0].Kind != evs[0].Kind || got[0].Device != evs[0].Device || got[0].Detail != evs[0].Detail || !got[0].At.Equal(evs[0].At) {
+	if err != nil || len(got) != 1 || got[0].Kind != evs[0].Kind || got[0].Device != evs[0].Device ||
+		got[0].Detail != evs[0].Detail || !got[0].At.Equal(evs[0].At) {
 		t.Errorf("events = %+v, %v", got, err)
 	}
 }
@@ -96,7 +103,8 @@ func TestStoreRestore(t *testing.T) {
 		t.Fatalf("restore = %d devices, %d readings", len(devs), len(got))
 	}
 	for i := range want {
-		if got[i].Device != want[i].Device || got[i].Metric != want[i].Metric || !got[i].Value.Equal(want[i].Value) || !got[i].At.Equal(want[i].At) {
+		if got[i].Device != want[i].Device || got[i].Metric != want[i].Metric ||
+			!got[i].Value.Equal(want[i].Value) || !got[i].At.Equal(want[i].At) {
 			t.Errorf("reading %d = %+v, want %+v", i, got[i], want[i])
 		}
 	}
@@ -107,11 +115,31 @@ func TestStorePrune(t *testing.T) {
 	s := New(db)
 	// A device last seen two days ago with nothing newer: retired, its history aged out.
 	ghost := model.Device{ID: "aqara:ghost", Name: "Old lock", Kind: model.KindLock}
-	if err := s.Persist(t.Context(), []model.Device{ghost}, []model.Reading{num(ghost.ID, model.Battery, 90, epoch.Add(-48*time.Hour))}, nil, epoch.Add(-48*time.Hour)); err != nil {
+	if err := s.Persist(
+		t.Context(),
+		[]model.Device{ghost},
+		[]model.Reading{num(ghost.ID, model.Battery, 90, epoch.Add(-48*time.Hour))},
+		nil,
+		epoch.Add(-48*time.Hour),
+	); err != nil {
 		t.Fatal(err)
 	}
-	rs := []model.Reading{num(hall.ID, model.Temperature, 20, epoch.Add(-48*time.Hour)), num(hall.ID, model.Temperature, 21, epoch)}
-	evs := []model.Event{{Kind: model.EventOnline, Device: hall.ID, At: epoch.Add(-48 * time.Hour)}, {Kind: model.EventOffline, Device: hall.ID, At: epoch}}
+	rs := []model.Reading{
+		num(hall.ID, model.Temperature, 20, epoch.Add(-48*time.Hour)),
+		num(hall.ID, model.Temperature, 21, epoch),
+	}
+	evs := []model.Event{
+		{
+			Kind:   model.EventOnline,
+			Device: hall.ID,
+			At:     epoch.Add(-48 * time.Hour),
+		},
+		{
+			Kind:   model.EventOffline,
+			Device: hall.ID,
+			At:     epoch,
+		},
+	}
 	if err := s.Persist(t.Context(), []model.Device{hall}, rs, evs, epoch); err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +147,12 @@ func TestStorePrune(t *testing.T) {
 	if err != nil || n != 4 { // two readings, one event, one device
 		t.Fatalf("Prune = %d, %v; want 4", n, err)
 	}
-	if pts, err := readings.New(db).Series(t.Context(), hall.ID, model.Temperature, epoch.Add(-72*time.Hour)); err != nil || len(pts) != 1 {
+	if pts, err := readings.New(db).Series(
+		t.Context(),
+		hall.ID,
+		model.Temperature,
+		epoch.Add(-72*time.Hour),
+	); err != nil || len(pts) != 1 {
 		t.Errorf("series after prune = %+v, %v", pts, err)
 	}
 	if devs, _, err := s.Restore(t.Context()); err != nil || len(devs) != 1 || devs[0] != hall {
@@ -165,7 +198,8 @@ func TestStoreTrend(t *testing.T) {
 	if _, ok, err := s.Trend(t.Context(), hall.ID, model.Temperature, epoch.Add(-2*time.Hour)); ok || err != nil {
 		t.Errorf("no point before the window: ok=%t err=%v", ok, err)
 	}
-	if delta, ok, err := s.Trend(t.Context(), hall.ID, model.Temperature, epoch.Add(time.Hour)); !ok || delta != 0 || err != nil {
+	if delta, ok, err := s.Trend(t.Context(), hall.ID, model.Temperature, epoch.Add(time.Hour)); !ok || delta != 0 ||
+		err != nil {
 		t.Errorf("nothing newer than the window: delta=%v ok=%t err=%v; want flat", delta, ok, err)
 	}
 }

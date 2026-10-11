@@ -24,8 +24,13 @@ linters:
     - modernize
     - intrange
     - usetesting
+    # Lines stay within 120 columns; tabs count as four, as an editor shows them.
+    - lll
 
   settings:
+    lll:
+      line-length: 120
+      tab-width: 4
     godot:
       scope: declarations
     revive:
@@ -63,3 +68,11 @@ formatters:
   enable:
     - gofmt
     - goimports
+    # Shortens lines over 120 columns, one element per line; comments stay as written.
+    - golines
+  settings:
+    golines:
+      max-len: 120
+      tab-len: 4
+      shorten-comments: false
+      reformat-tags: true

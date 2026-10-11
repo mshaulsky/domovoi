@@ -133,11 +133,13 @@ displays:
 				if opts.AccessID != "id-1" || opts.AccessKey.Reveal() != "s3cret" || opts.Region != "eu" {
 					t.Errorf("options = %+v, secret %q", opts, opts.AccessKey.Reveal())
 				}
-				if s2 := cfg.Sources[1]; s2.Name != "tuya-office" || s2.Interval != time.Minute || s2.StaleAfter != 20*time.Minute {
+				if s2 := cfg.Sources[1]; s2.Name != "tuya-office" || s2.Interval != time.Minute ||
+					s2.StaleAfter != 20*time.Minute {
 					t.Errorf("source[1] = %+v", s2)
 				}
 				d := cfg.Displays[0]
-				if d.Name != "hall" || d.Tick != time.Minute || d.FullEvery != 30*time.Minute || d.Language != "en" || len(d.Scenes) != 2 {
+				if d.Name != "hall" || d.Tick != time.Minute || d.FullEvery != 30*time.Minute ||
+					d.Language != "en" || len(d.Scenes) != 2 {
 					t.Errorf("display = %+v", d)
 				}
 			},
@@ -179,17 +181,61 @@ displays:
 				}
 			},
 		},
-		{name: "unknown top-level key", yaml: "colour: red\n" + minimal, wantErr: "field colour not found"},
-		{name: "no displays", yaml: "sources:\n  - kind: tuya\n", wantErr: "at least one display"},
-		{name: "missing kind", yaml: "displays:\n  - name: x\n", wantErr: "displays[0]: kind is required"},
-		{name: "duplicate names", yaml: "displays:\n  - kind: pngfile\n  - kind: pngfile\n", wantErr: `duplicate name "pngfile"`},
-		{name: "name with colon", yaml: "sources:\n  - kind: tuya\n    name: a:b\n" + minimal, wantErr: `name "a:b" must match`},
-		{name: "negative interval", yaml: "sources:\n  - kind: tuya\n    interval: -1s\n" + minimal, wantErr: "interval must be positive"},
-		{name: "bad duration", yaml: "sources:\n  - kind: tuya\n    interval: soon\n" + minimal, wantErr: "sources[0]"},
-		{name: "bad timezone", yaml: "timezone: Mars/Olympus\n" + minimal, wantErr: `timezone "Mars/Olympus"`},
-		{name: "section is not a mapping", yaml: "displays:\n  - pngfile\n", wantErr: "expected a mapping, got a scalar"},
-		{name: "empty scene name", yaml: "displays:\n  - kind: pngfile\n    scenes: ['']\n", wantErr: "empty scene name"},
-		{name: "invalid yaml", yaml: "displays: [", wantErr: "parse yaml"},
+		{
+			name:    "unknown top-level key",
+			yaml:    "colour: red\n" + minimal,
+			wantErr: "field colour not found",
+		},
+		{
+			name:    "no displays",
+			yaml:    "sources:\n  - kind: tuya\n",
+			wantErr: "at least one display",
+		},
+		{
+			name:    "missing kind",
+			yaml:    "displays:\n  - name: x\n",
+			wantErr: "displays[0]: kind is required",
+		},
+		{
+			name:    "duplicate names",
+			yaml:    "displays:\n  - kind: pngfile\n  - kind: pngfile\n",
+			wantErr: `duplicate name "pngfile"`,
+		},
+		{
+			name:    "name with colon",
+			yaml:    "sources:\n  - kind: tuya\n    name: a:b\n" + minimal,
+			wantErr: `name "a:b" must match`,
+		},
+		{
+			name:    "negative interval",
+			yaml:    "sources:\n  - kind: tuya\n    interval: -1s\n" + minimal,
+			wantErr: "interval must be positive",
+		},
+		{
+			name:    "bad duration",
+			yaml:    "sources:\n  - kind: tuya\n    interval: soon\n" + minimal,
+			wantErr: "sources[0]",
+		},
+		{
+			name:    "bad timezone",
+			yaml:    "timezone: Mars/Olympus\n" + minimal,
+			wantErr: `timezone "Mars/Olympus"`,
+		},
+		{
+			name:    "section is not a mapping",
+			yaml:    "displays:\n  - pngfile\n",
+			wantErr: "expected a mapping, got a scalar",
+		},
+		{
+			name:    "empty scene name",
+			yaml:    "displays:\n  - kind: pngfile\n    scenes: ['']\n",
+			wantErr: "empty scene name",
+		},
+		{
+			name:    "invalid yaml",
+			yaml:    "displays: [",
+			wantErr: "parse yaml",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -217,10 +263,26 @@ func TestOptionsDecode(t *testing.T) {
 		want    opts
 		wantErr string
 	}{
-		{name: "known keys", yaml: "displays:\n  - kind: pngfile\n    path: /tmp/f.png\n    width: 800\n", want: opts{Path: "/tmp/f.png", Width: 800}},
-		{name: "no options", yaml: minimal, want: opts{}},
-		{name: "unknown key", yaml: "displays:\n  - kind: pngfile\n    pth: /tmp/f.png\n", wantErr: "field pth not found"},
-		{name: "type mismatch", yaml: "displays:\n  - kind: pngfile\n    width: wide\n", wantErr: "cannot unmarshal"},
+		{
+			name: "known keys",
+			yaml: "displays:\n  - kind: pngfile\n    path: /tmp/f.png\n    width: 800\n",
+			want: opts{Path: "/tmp/f.png", Width: 800},
+		},
+		{
+			name: "no options",
+			yaml: minimal,
+			want: opts{},
+		},
+		{
+			name:    "unknown key",
+			yaml:    "displays:\n  - kind: pngfile\n    pth: /tmp/f.png\n",
+			wantErr: "field pth not found",
+		},
+		{
+			name:    "type mismatch",
+			yaml:    "displays:\n  - kind: pngfile\n    width: wide\n",
+			wantErr: "cannot unmarshal",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -304,11 +366,30 @@ func TestParseStorage(t *testing.T) {
 		want    StorageSection
 		wantErr string
 	}{
-		{name: "defaults", yaml: minimal, want: StorageSection{Path: DefaultStoragePath, Retention: DefaultRetention, Heartbeat: DefaultHeartbeat}},
-		{name: "explicit", yaml: minimal + "storage:\n  path: /var/lib/domovoi/domovoi.db\n  retention: 720h\n  heartbeat: 30m\n",
-			want: StorageSection{Path: "/var/lib/domovoi/domovoi.db", Retention: 720 * time.Hour, Heartbeat: 30 * time.Minute}},
-		{name: "negative retention", yaml: minimal + "storage:\n  retention: -1h\n", wantErr: "retention and heartbeat must be positive"},
-		{name: "unknown key", yaml: minimal + "storage:\n  pathh: x\n", wantErr: "pathh"},
+		{
+			name: "defaults",
+			yaml: minimal,
+			want: StorageSection{Path: DefaultStoragePath, Retention: DefaultRetention, Heartbeat: DefaultHeartbeat},
+		},
+		{
+			name: "explicit",
+			yaml: minimal + "storage:\n  path: /var/lib/domovoi/domovoi.db\n  retention: 720h\n  heartbeat: 30m\n",
+			want: StorageSection{
+				Path:      "/var/lib/domovoi/domovoi.db",
+				Retention: 720 * time.Hour,
+				Heartbeat: 30 * time.Minute,
+			},
+		},
+		{
+			name:    "negative retention",
+			yaml:    minimal + "storage:\n  retention: -1h\n",
+			wantErr: "retention and heartbeat must be positive",
+		},
+		{
+			name:    "unknown key",
+			yaml:    minimal + "storage:\n  pathh: x\n",
+			wantErr: "pathh",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
