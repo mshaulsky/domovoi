@@ -997,11 +997,14 @@ What the first frame shows, top to bottom, on 800×480:
    with a droplet, today's min/max in small type (the current value in
    accent when it *is* today's extreme), a trend arrow from the last hour, a
    battery glyph by level (accent below 20 %), dimmed when stale or offline.
-   Five tiles today: **outside first** (the `weather:home` device: the
+   The grid is two columns up to four tiles, three up to six, four beyond:
+   a tile's contents scale to its cell by the tighter side, and on 800×480
+   a third row would halve them where a fourth column keeps seven tenths.
+   Seven tiles today: **outside first** (the `weather:home` device: the
    condition icon large from the WMO-code table with the condition worded
    through i18n, temperature, humidity, precipitation probability, wind with
    its glyph, forecast high/low, sunrise/sunset with their glyphs), then
-   кабинет, спальня, зал, кухня.
+   кабинет, спальня, зал, кухня, прихожая and the thermostat.
 4. **Hallway strip**: lock (`lock`/`lock-open` with "since"), the washing
    machine outlet (`washing-machine` + `power-plug`/`power-plug-off`), the
    two leak sensors (`water-off` dry / `water` LEAK). Anything alarmed in

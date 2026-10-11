@@ -66,10 +66,7 @@ func (o Overview) Render(s display.Surface, v View) (*image.Paletted, error) {
 		c.TextIn(v.Bundle.T(key), c.Faces().Text(sc.px(24)), th.Ink, r, AlignCenter)
 		return c.Image(), nil
 	}
-	cols := 2
-	if len(tiles) > 4 {
-		cols = 3
-	}
+	cols := tileColumns(len(tiles))
 	rows := (len(tiles) + cols - 1) / cols
 	cells := Grid(r.Inset(sc.px(tileGap)/2), cols, rows, sc.px(tileGap))
 	for i, d := range tiles {
@@ -95,6 +92,22 @@ func tileDevices(v View) []model.Device {
 		}
 	}
 	return append(outside, rest...)
+}
+
+// tileColumns picks the grid width for n tiles: two columns up to four
+// tiles, three up to six, four beyond. A tile's contents scale to its cell
+// by the tighter side, and rows are the scarce side here: on 800×480 a
+// third row halves a tile's design height, while a fourth column still
+// leaves it seven tenths of its width.
+func tileColumns(n int) int {
+	switch {
+	case n > 6:
+		return 4
+	case n > 4:
+		return 3
+	default:
+		return 2
+	}
 }
 
 // hallwayDevices lists the devices with a lock, leak or power state that

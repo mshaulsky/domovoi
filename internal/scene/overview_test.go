@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mshaulsky/domovoi/internal/display"
+	"github.com/mshaulsky/domovoi/internal/model"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden images")
@@ -48,6 +49,23 @@ func TestOverviewRender(t *testing.T) {
 				v.Alerts = nil
 				v.Devices = v.Devices[:5]
 				v.Note = "Дома всё спокойно, влажность в норме."
+			},
+		},
+		{
+			name: "seven_tiles", lang: "ru", surface: surface(800, 480, false),
+			mutate: func(v *View) {
+				// A sixth room takes the grid to four columns.
+				const id model.DeviceID = "tuya:hallway"
+				v.Devices = append(v.Devices, model.Device{ID: id, Name: "Прихожая", Kind: model.KindClimateSensor})
+				v.Readings[id] = map[model.Metric]model.Reading{}
+				for m, val := range map[model.Metric]model.Value{
+					model.Temperature: model.NumberValue(22.4), model.Humidity: model.NumberValue(53), model.Battery: model.NumberValue(100), model.Online: model.BoolValue(true),
+				} {
+					v.Readings[id][m] = model.Reading{Device: id, Metric: m, Value: val, At: epoch}
+				}
+				v.Seen[id] = epoch
+				v.Extremes[id] = map[model.Metric]Extremes{model.Temperature: {Min: 21.7, Max: 22.4}}
+				v.Trends[id] = map[model.Metric]float64{model.Temperature: 0.3}
 			},
 		},
 		{

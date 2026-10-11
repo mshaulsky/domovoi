@@ -86,8 +86,9 @@ tree unchanged; CI diffs it.
   `container.Check` and validates instead (the storage module checks the
   directory and migrates an in-memory database). Tests never rely on the
   working directory for output paths: `t.TempDir()` everywhere.
-- Never commit, push or tag unless the user asks in that turn. Never
-  change the global git config; identity is set per repository.
+- Never commit, push or tag unless the user asks in that turn. The commit
+  identity comes from the user's global git config; never set one per
+  repository or change it unless asked.
 - Secrets never enter the repo, the chat or the shell history: config uses
   `${NAME}` placeholders resolved from `$CREDENTIALS_DIRECTORY`,
   `/run/secrets` or the environment; local runs source a gitignored `.env`.
