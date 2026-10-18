@@ -1,11 +1,14 @@
 package config
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mshaulsky/domovoi/internal/model"
 )
 
 const minimal = `
@@ -471,6 +474,46 @@ func TestParseStorage(t *testing.T) {
 			}
 			if cfg.Storage != tt.want {
 				t.Errorf("Storage = %+v, want %+v", cfg.Storage, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseLabels(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		want    map[model.DeviceID]string
+		wantErr string
+	}{
+		{
+			name: "absent",
+			yaml: minimal,
+		},
+		{
+			name: "short names",
+			yaml: minimal + "labels:\n  aqara:doorlock-3b7f29e4: замок\n  tuya:bf01: аквариум\n",
+			want: map[model.DeviceID]string{"aqara:doorlock-3b7f29e4": "замок", "tuya:bf01": "аквариум"},
+		},
+		{
+			name:    "empty label",
+			yaml:    minimal + "labels:\n  tuya:bf01: ''\n",
+			wantErr: `labels: device "tuya:bf01": empty label`,
+		},
+		{
+			name:    "id without a source",
+			yaml:    minimal + "labels:\n  bf01: аквариум\n",
+			wantErr: `labels: device "bf01": want <source>:<id>`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := Parse([]byte(tt.yaml), MapLookup(nil))
+			if checkErr(t, err, tt.wantErr) {
+				return
+			}
+			if !maps.Equal(cfg.Labels, tt.want) {
+				t.Errorf("Labels = %v, want %v", cfg.Labels, tt.want)
 			}
 		})
 	}

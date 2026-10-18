@@ -285,7 +285,7 @@ func (w wiring) displays(grace time.Duration) (assembly, error) {
 			return a, fmt.Errorf("display %s: %w", dc.Name, err)
 		}
 		co, err := render.New(
-			render.Config{Name: dc.Name, StartGrace: grace},
+			render.Config{Name: dc.Name, StartGrace: grace, Labels: w.cfg.Labels},
 			policy,
 			disp,
 			scenes,

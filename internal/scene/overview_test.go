@@ -69,22 +69,15 @@ func TestOverviewRender(t *testing.T) {
 			name:    "seven_tiles",
 			lang:    "ru",
 			surface: surface(800, 480, false),
+			mutate:  addHallwayRoom,
+		},
+		{
+			name:    "seven_tiles_quiet",
+			lang:    "ru",
+			surface: surface(800, 480, false),
 			mutate: func(v *View) {
-				// A sixth room takes the grid to four columns.
-				const id model.DeviceID = "tuya:hallway"
-				v.Devices = append(v.Devices, model.Device{ID: id, Name: "Прихожая", Kind: model.KindClimateSensor})
-				v.Readings[id] = map[model.Metric]model.Reading{}
-				for m, val := range map[model.Metric]model.Value{
-					model.Temperature: model.NumberValue(22.4),
-					model.Humidity:    model.NumberValue(53),
-					model.Battery:     model.NumberValue(100),
-					model.Online:      model.BoolValue(true),
-				} {
-					v.Readings[id][m] = model.Reading{Device: id, Metric: m, Value: val, At: epoch}
-				}
-				v.Seen[id] = epoch
-				v.Extremes[id] = map[model.Metric]Extremes{model.Temperature: {Min: 21.7, Max: 22.4}}
-				v.Trends[id] = map[model.Metric]float64{model.Temperature: 0.3}
+				addHallwayRoom(v)
+				v.Alerts, v.Events = nil, nil // the usual state of the glass: no alert bar, no footer
 			},
 		},
 		{
@@ -145,6 +138,24 @@ func TestOverviewRender(t *testing.T) {
 			}
 		})
 	}
+}
+
+// addHallwayRoom adds a sixth room, which takes the grid to four columns.
+func addHallwayRoom(v *View) {
+	const id model.DeviceID = "tuya:hallway"
+	v.Devices = append(v.Devices, model.Device{ID: id, Name: "Прихожая", Kind: model.KindClimateSensor})
+	v.Readings[id] = map[model.Metric]model.Reading{}
+	for m, val := range map[model.Metric]model.Value{
+		model.Temperature: model.NumberValue(22.4),
+		model.Humidity:    model.NumberValue(53),
+		model.Battery:     model.NumberValue(100),
+		model.Online:      model.BoolValue(true),
+	} {
+		v.Readings[id][m] = model.Reading{Device: id, Metric: m, Value: val, At: epoch}
+	}
+	v.Seen[id] = epoch
+	v.Extremes[id] = map[model.Metric]Extremes{model.Temperature: {Min: 21.7, Max: 22.4}}
+	v.Trends[id] = map[model.Metric]float64{model.Temperature: 0.3}
 }
 
 func TestOverviewRenderErrors(t *testing.T) {

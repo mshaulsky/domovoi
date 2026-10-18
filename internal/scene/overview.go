@@ -45,9 +45,12 @@ func (o Overview) Render(s display.Surface, v View) (*image.Paletted, error) {
 	Header{}.Draw(c, header, v)
 	c.HLine(r.Min.X, r.Max.X, r.Min.Y, sc.px(lineWidth), th.Ink)
 
-	footer, r := TakeBottom(r, sc.px(footerHeight))
-	c.HLine(footer.Min.X, footer.Max.X, footer.Min.Y, sc.px(lineWidth), th.Ink)
-	Footer{}.Draw(c, footer, v)
+	if !v.Starting && (v.Note != "" || len(v.Events) > 0) {
+		var footer image.Rectangle
+		footer, r = TakeBottom(r, sc.px(footerHeight))
+		c.HLine(footer.Min.X, footer.Max.X, footer.Min.Y, sc.px(lineWidth), th.Ink)
+		Footer{}.Draw(c, footer, v)
+	}
 
 	hall := hallwayDevices(v)
 	if len(hall) > 0 {
@@ -95,10 +98,9 @@ func tileDevices(v View) []model.Device {
 }
 
 // tileColumns picks the grid width for n tiles: two columns up to four
-// tiles, three up to six, four beyond. A tile's contents scale to its cell
-// by the tighter side, and rows are the scarce side here: on 800×480 a
-// third row halves a tile's design height, while a fourth column still
-// leaves it seven tenths of its width.
+// tiles, three up to six, four beyond. Tiles are designed for the 4×2 grid
+// on 800×480, so they never shrink there; rows are the scarce side, since
+// a third row would cut a tile's height by a third.
 func tileColumns(n int) int {
 	switch {
 	case n > 6:

@@ -24,6 +24,7 @@ type View struct {
 	Alerts   []Alert
 	Events   []model.Event                // most recent first
 	Icons    map[model.DeviceID]icon.Icon // overrides from settings
+	Labels   map[model.DeviceID]string    // short names for the hallway strip, from settings
 	Note     string                       // the advisor's line, when there is one
 	Starting bool                         // no source has delivered anything yet
 	Restored bool                         // the picture comes from storage, no source has delivered since start
@@ -134,6 +135,15 @@ func (v View) DeviceName(d model.Device) string {
 		return d.Name
 	}
 	return d.Room
+}
+
+// Label returns the device's short label for the hallway strip, or its
+// display name when none is configured.
+func (v View) Label(d model.Device) string {
+	if l, ok := v.Labels[d.ID]; ok {
+		return l
+	}
+	return v.DeviceName(d)
 }
 
 // Clock formats a moment in the view's location as HH:MM.

@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/mshaulsky/domovoi/internal/model"
 )
 
 // Config is the file layer, parsed, resolved and validated.
@@ -23,6 +25,7 @@ type Config struct {
 	Sources  []SourceSection
 	Displays []DisplaySection
 	Storage  StorageSection
+	Labels   map[model.DeviceID]string // short device names for the hallway strip
 }
 
 // StorageSection is where history lives and how long it is kept.
@@ -120,11 +123,12 @@ var (
 
 // file is the YAML shape of the document.
 type file struct {
-	Timezone string        `yaml:"timezone"`
-	Language string        `yaml:"language"`
-	Sources  []section     `yaml:"sources"`
-	Displays []section     `yaml:"displays"`
-	Storage  storageFields `yaml:"storage"`
+	Timezone string                    `yaml:"timezone"`
+	Language string                    `yaml:"language"`
+	Sources  []section                 `yaml:"sources"`
+	Displays []section                 `yaml:"displays"`
+	Storage  storageFields             `yaml:"storage"`
+	Labels   map[model.DeviceID]string `yaml:"labels"`
 }
 
 type storageFields struct {
@@ -192,7 +196,7 @@ func Parse(data []byte, lookup Lookup) (Config, error) {
 	if err := decodeStrict(&root, &f); err != nil {
 		return Config{}, err
 	}
-	cfg := Config{Language: f.Language}
+	cfg := Config{Language: f.Language, Labels: f.Labels}
 	if cfg.Language == "" {
 		cfg.Language = DefaultLanguage
 	}
@@ -335,6 +339,9 @@ func (c Config) validate() error {
 	if c.Storage.Retention < 0 || c.Storage.Heartbeat < 0 {
 		return errors.New("storage: retention and heartbeat must be positive")
 	}
+	if err := validateLabels(c.Labels); err != nil {
+		return err
+	}
 	seen := map[string]bool{}
 	for i, s := range c.Sources {
 		if err := validateHead("sources", i, s.Kind, s.Name, seen); err != nil {
@@ -380,6 +387,19 @@ func (d DisplaySection) validateRefresh() error {
 	}
 	if !inside {
 		return fmt.Errorf("quiet.wash %s is outside the quiet hours %s–%s", clock(q.Wash), clock(q.From), clock(q.To))
+	}
+	return nil
+}
+
+// validateLabels checks that every label is set for a "<source>:<id>" device.
+func validateLabels(labels map[model.DeviceID]string) error {
+	for _, id := range slices.Sorted(maps.Keys(labels)) {
+		if id.Source() == "" {
+			return fmt.Errorf("labels: device %q: want <source>:<id>", id)
+		}
+		if strings.TrimSpace(labels[id]) == "" {
+			return fmt.Errorf("labels: device %q: empty label", id)
+		}
 	}
 	return nil
 }

@@ -65,15 +65,16 @@ const (
 	headerHeight = 44
 	alertHeight  = 40
 	footerHeight = 40
-	hallwayRow   = 84
-	hallwayCell  = 190 // design cell width; the strip is one row, narrower cells shrink
+	hallwayRow   = 60
+	hallwayCols  = 3   // cells per strip row; more devices wrap onto another row
+	hallwayCell  = 190 // design cell width; narrower cells shrink
 	tileGap      = 8
 	padding      = 10
 	lineWidth    = 1
 	footerEvents = 2 // how many journal events the footer lists
 	lowBattery   = 20
-	tileInnerH   = 150 // a tile's inner height at design size
-	tileInnerW   = 240 // a tile's inner width at design size
+	tileInnerH   = 133 // a tile's inner height at design size: a 4×2 grid on 800×480
+	tileInnerW   = 170 // a tile's inner width at design size
 	// hallwayMinScale bounds how far a crowded strip shrinks its cells.
 	hallwayMinScale = 0.55
 	tileMinFactor   = 0.4
@@ -188,12 +189,12 @@ func (t ClimateTile) Draw(c *Canvas, r image.Rectangle, v View) {
 	top, rest := TakeTop(inner, s.px(26))
 	drawTitle(c, top, s, v.Icon(t.Device), v.DeviceName(t.Device), statusIcons(v, id))
 
-	big, rest := TakeTop(rest, s.px(62))
+	big, rest := TakeTop(rest, s.px(50))
 	if temp, ok := v.Number(id, model.Temperature); ok {
 		drawBigValue(c, big, s, icon.Thermometer, v.Format(temp, 1)+"°", v.Trend(id, model.Temperature))
 	}
 
-	line, rest := TakeTop(rest, s.px(26))
+	line, rest := TakeTop(rest, s.px(28))
 	var details []detail
 	if hum, ok := v.Number(id, model.Humidity); ok {
 		details = append(details, detail{icon: icon.Humidity, col: th.Ink, text: v.Format(hum, 0) + " %"})
@@ -209,7 +210,7 @@ func (t ClimateTile) Draw(c *Canvas, r image.Rectangle, v View) {
 		x = drawDetail(c, line, s, x, d)
 	}
 	if bat, ok := v.Number(id, model.Battery); ok {
-		iconSize := s.px(22)
+		iconSize := s.px(24)
 		col := th.Ink
 		if bat < lowBattery {
 			col = th.Accent
@@ -232,8 +233,9 @@ func (t ClimateTile) Draw(c *Canvas, r image.Rectangle, v View) {
 // drawSilence notes when a stale device last spoke, in the accent colour,
 // where a live tile shows its extremes.
 func drawSilence(c *Canvas, r image.Rectangle, s scale, v View, seen time.Time) {
-	face := c.Faces().Text(s.px(15))
-	c.TextIn(v.Bundle.T("scene.no_data_since", i18n.Args{"Time": v.When(seen)}), face, c.Theme().Accent, r, AlignLeft)
+	text := v.Bundle.T("scene.no_data_since", i18n.Args{"Time": v.When(seen)})
+	face := c.FitText(text, false, s.px(17), s.px(13), r.Dx())
+	c.TextIn(text, face, c.Theme().Accent, r, AlignLeft)
 }
 
 // Draw renders the weather tile.
@@ -250,14 +252,14 @@ func (t OutsideTile) Draw(c *Canvas, r image.Rectangle, v View) {
 
 	code, _ := v.Number(id, model.WeatherCode)
 	condition := model.WeatherConditionOf(int(code))
-	big, rest := TakeTop(rest, s.px(56))
+	big, rest := TakeTop(rest, s.px(50))
 	if temp, ok := v.Number(id, model.Temperature); ok {
 		drawBigValue(c, big, s, icon.ForCondition(condition), v.Format(temp, 1)+"°", icon.None)
 	}
 
 	lines := Even(rest, 3, true)
-	face := c.Faces().Text(s.px(17))
-	small := s.px(18)
+	face := c.Faces().Text(s.px(16))
+	small := s.px(17)
 	gap := s.px(8)
 	row := lineWriter{c: c, s: s, face: face, small: small, gap: gap}
 
@@ -297,7 +299,9 @@ func (h Hallway) Draw(c *Canvas, r image.Rectangle, v View) {
 	}
 	s := newScale(c.Bounds())
 	th := c.Theme()
-	cells := Grid(r, len(h.Devices), 1, 0) // one row: the strip shrinks, it never wraps
+	cols := min(len(h.Devices), hallwayCols)
+	rows := (len(h.Devices) + cols - 1) / cols
+	cells := Grid(r, cols, rows, 0)
 	for i, d := range h.Devices {
 		cell := cells[i].Inset(s.px(padding))
 		cs := fitScale(cell, hallwayCell-2*padding, hallwayRow-2*padding)
@@ -315,8 +319,8 @@ func (h Hallway) Draw(c *Canvas, r image.Rectangle, v View) {
 		}
 		c.Icon(ic, iconSize, col, cell.Min.X, cell.Min.Y+(cell.Dy()-iconSize)/2)
 		text := image.Rect(cell.Min.X+iconSize+cs.px(8), cell.Min.Y, cell.Max.X, cell.Max.Y)
-		name, rest := TakeTop(text, text.Dy()/2)
-		label := v.DeviceName(d)
+		name, rest := TakeTop(text, text.Dy()*9/20)
+		label := v.Label(d)
 		c.TextIn(label, c.FitText(label, false, cs.px(16), cs.px(11), name.Dx()), th.Ink, name, AlignLeft)
 		c.TextIn(state, c.FitText(state, true, cs.px(20), cs.px(12), rest.Dx()), col, rest, AlignLeft)
 	}
@@ -419,17 +423,17 @@ func drawTitle(c *Canvas, r image.Rectangle, s scale, ic icon.Icon, name string,
 // optional trend arrow after it. The value shrinks to fit the width.
 func drawBigValue(c *Canvas, r image.Rectangle, s scale, ic icon.Icon, value string, trend icon.Icon) {
 	th := c.Theme()
-	iconSize := s.px(44)
+	iconSize := s.px(40)
 	trendSize := 0
 	if trend != icon.None {
-		trendSize = s.px(28) + s.px(4)
+		trendSize = s.px(26) + s.px(4)
 	}
 	c.Icon(ic, iconSize, th.Ink, r.Min.X, r.Min.Y+(r.Dy()-iconSize)/2)
 	x := r.Min.X + iconSize + s.px(6)
-	face := c.FitText(value, true, s.px(52), s.px(24), r.Max.X-x-trendSize)
+	face := c.FitText(value, true, s.px(46), s.px(24), r.Max.X-x-trendSize)
 	x += c.Text(value, face, th.Ink, x, baseline(face, r))
 	if trend != icon.None {
-		t := s.px(28)
+		t := s.px(26)
 		c.Icon(trend, t, th.Ink, x+s.px(4), r.Min.Y+(r.Dy()-t)/2)
 	}
 }
@@ -438,8 +442,8 @@ func drawBigValue(c *Canvas, r image.Rectangle, s scale, ic icon.Icon, value str
 // equals is accented, because that is a record being set right now.
 func drawExtremes(c *Canvas, r image.Rectangle, s scale, v View, ex Extremes, current float64) {
 	th := c.Theme()
-	face := c.Faces().Text(s.px(15))
-	iconSize := s.px(16)
+	face := c.Faces().Text(s.px(17))
+	iconSize := s.px(18)
 	x := r.Min.X
 	for _, e := range []struct {
 		ic  icon.Icon
@@ -476,8 +480,8 @@ type detail struct {
 
 // drawDetail draws one detail at x and returns where the next one starts.
 func drawDetail(c *Canvas, line image.Rectangle, s scale, x int, d detail) int {
-	face := c.Faces().Text(s.px(19))
-	iconSize := s.px(20)
+	face := c.Faces().Text(s.px(20))
+	iconSize := s.px(22)
 	c.Icon(d.icon, iconSize, d.col, x, line.Min.Y+(line.Dy()-iconSize)/2)
 	x += iconSize + s.px(4)
 	return x + c.Text(d.text, face, d.col, x, baseline(face, line)) + s.px(10)
@@ -500,13 +504,15 @@ func heatingDetail(v View, id model.DeviceID, th Theme) (detail, bool) {
 	}
 }
 
-// hallwayHeight is the strip height for n devices in one row: the design
-// row height while the cells are at least hallwayCell wide, shrinking with
-// the cells below that, never under hallwayMinScale of the design.
+// hallwayHeight is the strip height for n devices in rows of hallwayCols:
+// the design row height per row while the cells are at least hallwayCell
+// wide, shrinking with the cells below that, never under hallwayMinScale.
 func hallwayHeight(width int, s scale, n int) int {
-	ratio := float64(width/max(n, 1)) / float64(s.px(hallwayCell))
+	cols := min(max(n, 1), hallwayCols)
+	rows := (max(n, 1) + cols - 1) / cols
+	ratio := float64(width/cols) / float64(s.px(hallwayCell))
 	ratio = min(1, max(hallwayMinScale, ratio))
-	return int(float64(s.px(hallwayRow))*ratio + 0.5)
+	return rows * int(float64(s.px(hallwayRow))*ratio+0.5)
 }
 
 // hallwayState picks the icon and state word of a hallway device, and

@@ -6,6 +6,7 @@ import (
 	"image"
 	"io"
 	"log/slog"
+	"maps"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -446,7 +447,8 @@ func TestCoordinatorRenderView(t *testing.T) {
 				At:     now,
 			},
 		}, nil)
-		c := d.coordinator(t, Config{}, PolicyConfig{})
+		labels := map[model.DeviceID]string{"tuya:a": "a"}
+		c := d.coordinator(t, Config{Labels: labels}, PolicyConfig{})
 		var got scene.View
 		d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).
 			DoAndReturn(func(_ display.Surface, v scene.View) (*image.Paletted, error) {
@@ -473,6 +475,9 @@ func TestCoordinatorRenderView(t *testing.T) {
 		if len(got.Sources) != 2 || got.Sources[0].Name != "aqara" || !got.Sources[0].Stale ||
 			got.Sources[1].Name != "tuya" || got.Sources[1].Stale {
 			t.Errorf("sources = %+v", got.Sources)
+		}
+		if !maps.Equal(got.Labels, labels) {
+			t.Errorf("labels = %v, want %v", got.Labels, labels)
 		}
 	})
 }

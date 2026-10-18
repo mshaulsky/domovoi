@@ -459,11 +459,11 @@ meanwhile, so a sensor tile never goes blank over a flaky endpoint):
 `temp_alarm→TemperatureAlarm`, `hum_alarm→HumidityAlarm`, `switch*→Power`,
 `temp_set→TargetTemperature`, `valve_state` (`open`)→`Heating`,
 `cur_power→PowerDraw` (shown next to the outlet's state in the hallway
-strip; `add_ele` energy increments wait for storage). The strip is always
-one row: with many devices its cells and its height shrink together, down
-to 55 % of the design size, so the climate tiles keep their space. A thermostat
-keeps its climate tile — setpoint and heating state on the detail line —
-and stays out of the hallway strip.
+strip; `add_ele` energy increments wait for storage). The strip wraps into
+rows of three; only when a cell would be narrower than its design width do
+the cells and the rows shrink together, down to 55 % of the design size.
+A thermostat keeps its climate tile — setpoint and heating state on the
+detail line — and stays out of the hallway strip.
 Device kind by category (`wsdcg`→ClimateSensor, `cz`/`pc`→Outlet,
 `wk`→Thermostat, else Other).
 
@@ -725,6 +725,12 @@ Two layers:
 The file also carries `timezone` (IANA name, default the system zone): the
 `*time.Location` is passed explicitly to whatever computes "local midnight"
 or quiet hours, never read from the environment inside domain code.
+
+`labels` maps a device ID to a short name for the hallway strip
+(`aqara:doorlock-3b7f29e4: замок`); a device without one shows its cloud
+name. It is the interim way to give a device a short name: the back office
+(stage 6, the settings layer) will let the user rename devices from the web
+page, with the YAML map as the seed.
 
 **Reload** (stage 6, with the back office; the shape is fixed now so
 nothing has to be retrofitted). Two mechanisms for two kinds of parameter:
@@ -1082,9 +1088,10 @@ What the first frame shows, top to bottom, on 800×480:
    with a droplet, today's min/max in small type (the current value in
    accent when it *is* today's extreme), a trend arrow from the last hour, a
    battery glyph by level (accent below 20 %), dimmed when stale or offline.
-   The grid is two columns up to four tiles, three up to six, four beyond:
-   a tile's contents scale to its cell by the tighter side, and on 800×480
-   a third row would halve them where a fourth column keeps seven tenths.
+   The grid is two columns up to four tiles, three up to six, four beyond.
+   Tiles are designed for the 4×2 grid on 800×480 (170×133 inside the
+   border), so there they are drawn at design size; a tile's contents scale
+   only when its cell is smaller, by the tighter side.
    Seven tiles today: **outside first** (the `weather:home` device: the
    condition icon large from the WMO-code table with the condition worded
    through i18n, temperature, humidity, precipitation probability, wind with
@@ -1093,9 +1100,12 @@ What the first frame shows, top to bottom, on 800×480:
 4. **Hallway strip**: lock (`lock`/`lock-open` with "since"), the washing
    machine outlet (`washing-machine` + `power-plug`/`power-plug-off`), the
    two leak sensors (`water-off` dry / `water` LEAK). Anything alarmed in
-   accent.
-5. **Footer**: the advisor's note when present, otherwise the last two
-   journal events ("14:02 door unlocked", "13:40 kitchen sensor back online").
+   accent. Rows of three cells: icon, the short label from `labels:` (the
+   device name when none is set), the state in bold.
+5. **Footer** (only with content): the advisor's note when present,
+   otherwise the last two journal events ("14:02 door unlocked", "13:40
+   kitchen sensor back online"). Absent otherwise — the space goes to the
+   grid, which is the usual state of the glass.
 
 Everything is bound by (device, metric) or a metric query; nothing here
 knows a vendor. Devices hidden or renamed in settings are honoured.
@@ -1412,7 +1422,7 @@ the HTTP server (`net/http` 1.22 patterns,
 | Feature | Needs |
 |---|---|
 | AI digest and Q&A via the local LLM | `Advisor`, event journal, history queries, `Note` metric |
-| Back office (settings, alerts, timeline, charts, logs) | `httpd` registrar, settings layer, `Commands` |
+| Back office (settings, device labels, alerts, timeline, charts, logs) | `httpd` registrar, settings layer, `Commands` |
 | Two-way Telegram | `Commands`, `httpview` frame, advisor |
 | Derived metrics (dew point, ventilate hint, daily energy) | virtual sources with a state reader, counter delta query |
 | Calendar (ICS) | virtual source |

@@ -29,6 +29,12 @@ storage:
   # retention: 2160h    # 90 days of readings and events
   # heartbeat: 1h       # an unchanged series still gets a row this often
 
+# Short names for the hallway strip, by device ID; a device without one
+# shows its name from the cloud.
+# labels:
+#   aqara:doorlock-3b7f29e4: замок
+#   tuya:<device id>: аквариум
+
 displays:
   - kind: pngfile
     name: preview

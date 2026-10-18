@@ -90,6 +90,7 @@ is a complete, commented example. In short:
   often an unchanged frame is redrawn anyway, plus the refresh policy for e-ink
   (spacing of colour refreshes, partial updates, fast mode, and quiet
   hours with a longer tick and a nightly wash).
+- `labels` — short names for the hallway strip, by device ID.
 
 Secrets are never written into the YAML. A `${NAME}` placeholder is resolved
 from the file `$CREDENTIALS_DIRECTORY/NAME` (systemd's `LoadCredential=`),

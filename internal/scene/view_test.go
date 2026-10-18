@@ -125,6 +125,26 @@ func TestViewDeviceName(t *testing.T) {
 	}
 }
 
+func TestViewLabel(t *testing.T) {
+	v := fixture(t, "en")
+	tests := []struct {
+		name   string
+		device model.Device
+		want   string
+	}{
+		{name: "configured label", device: model.Device{ID: "aqara:lock", Name: "Door lock (U200)"}, want: "lock"},
+		{name: "falls back to the name", device: model.Device{ID: "tuya:office", Name: "Office"}, want: "Office"},
+		{name: "falls back to the room", device: model.Device{ID: "x:y", Room: "Hallway"}, want: "Hallway"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := v.Label(tt.device); got != tt.want {
+				t.Errorf("Label = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestViewClock(t *testing.T) {
 	v := fixture(t, "en")
 	if got := v.Clock(epoch); got != "17:05" {

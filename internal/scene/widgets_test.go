@@ -23,7 +23,7 @@ func TestWidgetsDraw(t *testing.T) {
 		{name: "climate tile", widget: ClimateTile{Device: v.Devices[1]}, rect: image.Rect(10, 10, 270, 160)},
 		{name: "climate tile tiny", widget: ClimateTile{Device: v.Devices[1]}, rect: image.Rect(10, 10, 90, 60)},
 		{name: "outside tile", widget: OutsideTile{Device: v.Devices[0]}, rect: image.Rect(10, 10, 270, 160)},
-		{name: "hallway", widget: Hallway{Devices: v.Devices[5:]}, rect: image.Rect(0, 0, 800, 84)},
+		{name: "hallway", widget: Hallway{Devices: v.Devices[5:]}, rect: image.Rect(0, 0, 800, 120)},
 		{name: "hallway narrow", widget: Hallway{Devices: v.Devices[5:]}, rect: image.Rect(0, 0, 300, 170)},
 		{name: "footer", widget: Footer{}, rect: image.Rect(0, 0, 800, 40)},
 	}
@@ -120,11 +120,13 @@ func TestHallwayHeight(t *testing.T) {
 		width, n int
 		want     int
 	}{
-		{name: "roomy keeps the design height", width: 800, n: 4, want: 84},
-		{name: "six cells shrink the strip", width: 800, n: 6, want: 59},
-		{name: "crowded stops at the floor", width: 800, n: 12, want: 46},
-		{name: "one device", width: 300, n: 1, want: 84},
-		{name: "no devices", width: 800, n: 0, want: 84},
+		{name: "one row of three", width: 800, n: 3, want: 60},
+		{name: "a fourth device wraps", width: 800, n: 4, want: 120},
+		{name: "two full rows", width: 800, n: 6, want: 120},
+		{name: "narrow cells shrink the rows", width: 500, n: 4, want: 104},
+		{name: "crowded stops at the floor", width: 300, n: 3, want: 33},
+		{name: "one device", width: 300, n: 1, want: 60},
+		{name: "no devices", width: 800, n: 0, want: 60},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

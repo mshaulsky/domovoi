@@ -41,8 +41,9 @@ type Coordinator struct {
 // Config tunes a coordinator. The cadence and the refresh decisions are
 // the policy's, tuned by PolicyConfig.
 type Config struct {
-	Name       string        // the display's configured name
-	StartGrace time.Duration // how long to wait for the first Wake before rendering anyway
+	Name       string                    // the display's configured name
+	StartGrace time.Duration             // how long to wait for the first Wake before rendering anyway
+	Labels     map[model.DeviceID]string // short device names for the hallway strip
 }
 
 // FixedLocale is a Locale that never changes: the configured language and
@@ -286,6 +287,7 @@ func (c *Coordinator) view(ctx context.Context, now time.Time) scene.View {
 		Stale:    make(map[model.DeviceID]bool, len(sn.Devices)),
 		Seen:     make(map[model.DeviceID]time.Time, len(sn.Devices)),
 		Restored: sn.Restored,
+		Labels:   c.cfg.Labels,
 	}
 	for _, d := range sn.Devices {
 		v.Stale[d.ID] = sn.Stale(d.ID)

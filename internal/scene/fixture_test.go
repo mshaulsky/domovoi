@@ -162,6 +162,13 @@ func fixture(t *testing.T, lang string) View {
 		Now:      epoch,
 		Location: almaty,
 		Bundle:   bundle,
+		Labels: map[model.DeviceID]string{
+			"aqara:lock":    name("замок", "lock"),
+			"aqara:washer":  name("стиралка", "washer"),
+			"aqara:leak1":   name("стиралка", "washer"),
+			"aqara:leak2":   name("ванная", "bathroom"),
+			"tuya:aquarium": name("аквариум", "aquarium"),
+		},
 		Devices:  devices,
 		Readings: map[model.DeviceID]map[model.Metric]model.Reading{},
 		Stale:    map[model.DeviceID]bool{"tuya:kitchen": false},
