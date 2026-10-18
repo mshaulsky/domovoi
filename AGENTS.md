@@ -66,12 +66,15 @@ tree unchanged; CI diffs it.
   (`fmt.Errorf("tuya: list devices: %w", err)`). Doc comments on all
   exported identifiers, package comment in `doc.go`.
 - Tests: table-driven with `name`/`want`/`wantErr`, one test per public
-  method named `TestTypeMethod`. Time is virtual: `testing/synctest`
-  bubbles (`synctest.Test`), never injected clocks; `t.Run` inside a
-  bubble panics — open the bubble inside each subtest. Anything touching
-  files, databases or sockets is an integration test in
-  `*_integration_test.go` under `//go:build integration`, happy path only,
-  no simulated DB failures. Repository packages get one such file each.
+  method named `TestTypeMethod`. A test file mirrors its source file
+  (`foo_test.go` beside `foo.go`); a package's shared test helpers live in
+  `helpers_test.go`; a cross-cutting test is named for what it checks. Time
+  is virtual: `testing/synctest` bubbles (`synctest.Test`), never injected
+  clocks; `t.Run` inside a bubble panics — open the bubble inside each
+  subtest. Anything touching files, databases or sockets is an integration
+  test in `*_integration_test.go` under `//go:build integration`, happy
+  path only, no simulated DB failures. Repository packages get one such
+  file each.
 - Lines stay within 120 columns (`lll`, `golines`, tabs count as four). A
   list that spans lines has every element on its own line. A test table is
   either all one-liners or all canonical multi-line cases: `{` alone, one
