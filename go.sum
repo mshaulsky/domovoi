@@ -32,8 +32,8 @@ github.com/mshaulsky/aqaramcp v0.2.2 h1:hR++Ehpqz1c3/jorxmWs4y/LDCuxLOxeOpTLzNd7
 github.com/mshaulsky/aqaramcp v0.2.2/go.mod h1:YL+TaiQLWVn8HHcyBdJsnHSlySgBf1r6uvlwN5z1Z4A=
 github.com/mshaulsky/tuyacloud v0.1.0 h1:yriHStcmZHVbMHCqdXpoA3Hx8ppOTSsMcGQFM0SMjb4=
 github.com/mshaulsky/tuyacloud v0.1.0/go.mod h1:jPJUfvvMoWoiG/xTGGbyGFrewjqDjxUWiUGm7oLw940=
-github.com/mshaulsky/waveshare-epd7in5b-v2 v0.1.0 h1:NHhh6HQEb7Mr/EWtsp1LuWEbMqUzs6qYKvQeb9KJQNw=
-github.com/mshaulsky/waveshare-epd7in5b-v2 v0.1.0/go.mod h1:0O5KCFLlADDyjVilc8wH8z3AT01kxIXawsHPW8FXMaI=
+github.com/mshaulsky/waveshare-epd7in5b-v2 v0.2.0 h1:hPALh3pM8I/FKBU5k3uE2+enhiGnQAZjwBNtKfCmpOs=
+github.com/mshaulsky/waveshare-epd7in5b-v2 v0.2.0/go.mod h1:0O5KCFLlADDyjVilc8wH8z3AT01kxIXawsHPW8FXMaI=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq1c1nUAm88MOHcQC9l5mIlSMApZMrHA=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
 github.com/ncruces/go-strftime v1.0.0 h1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOFAw7w=
