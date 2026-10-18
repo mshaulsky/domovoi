@@ -9,6 +9,8 @@
 #   sudo install -m 755 domovoi-arm64 /usr/local/bin/domovoi
 #   sudo install -m 644 domovoi.yaml /etc/domovoi.yaml
 #   sudo env CREDENTIALS_DIRECTORY=/etc/credstore domovoi -config /etc/domovoi.yaml -check
+#   sudo install -m 644 -D journald-domovoi.conf /etc/systemd/journald.conf.d/domovoi.conf
+#   sudo systemctl restart systemd-journald                 # the journal capped at 64 MB
 #   sudo systemctl enable systemd-time-wait-sync.service   # so time-sync.target means a synced clock
 #   sudo systemctl enable --now domovoi
 
@@ -25,7 +27,10 @@ WorkingDirectory=/var/lib/domovoi
 ExecStart=/usr/local/bin/domovoi -config /etc/domovoi.yaml
 Restart=always
 RestartSec=10
-# The binary reports READY=1 and pings WATCHDOG=1 at half this interval.
+# The binary reports READY=1 and pings WATCHDOG=1 at half this interval while
+# it runs. Its own liveness check (the core unresponsive, or a display without
+# progress for two ticks) stops the process with exit code 1, and a shutdown
+# that outlasts its budget exits with 2; Restart= brings it back either way.
 WatchdogSec=120
 LoadCredential=TUYA_ACCESS_ID:/etc/credstore/TUYA_ACCESS_ID
 LoadCredential=TUYA_ACCESS_KEY:/etc/credstore/TUYA_ACCESS_KEY

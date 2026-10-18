@@ -31,10 +31,11 @@ type Coordinator struct {
 	busy   sync.Mutex // one render at a time; also guards policy
 	policy *Policy
 
-	mu   sync.Mutex // guards page, last, gen
+	mu   sync.Mutex // guards page, last, gen, mark; never held across Show
 	page int
 	last *image.Paletted // what is on the glass; nil = unknown
 	gen  uint64          // bumped by Refresh, so a refresh during a render is not lost
+	mark time.Time       // the last progress mark; before the first render, the end of the start grace
 }
 
 // Config tunes a coordinator. The cadence and the refresh decisions are
@@ -139,6 +140,9 @@ func (c *Coordinator) Name() string {
 // Wake, whichever comes first, then on every tick and every Wake. Render
 // errors are logged, not returned; stopping is not a failure.
 func (c *Coordinator) Run(ctx context.Context) error {
+	c.mu.Lock()
+	c.mark = time.Now().Add(c.cfg.StartGrace) // the first frame is promised for the end of the grace
+	c.mu.Unlock()
 	select {
 	case <-ctx.Done():
 		return nil
@@ -168,6 +172,7 @@ func (c *Coordinator) Render(ctx context.Context) error {
 	now := time.Now()
 
 	c.mu.Lock()
+	c.mark = now
 	sc := c.scenes[c.page%len(c.scenes)]
 	last, gen := c.last, c.gen
 	c.mu.Unlock()
@@ -186,7 +191,9 @@ func (c *Coordinator) Render(ctx context.Context) error {
 		return nil
 	}
 	frame := display.Frame{Image: img, Window: d.Window, Mode: d.Mode}
-	if err := c.disp.Show(ctx, frame); err != nil {
+	err = c.disp.Show(ctx, frame)
+	c.stamp() // a hung Show shows up only once it outlasts its own timeout
+	if err != nil {
 		c.forget() // the glass is unknown either way
 		c.policy.Failed()
 		if ctx.Err() == nil { // a Show cut short by shutdown is not a display failure
@@ -211,6 +218,22 @@ func (c *Coordinator) Render(ctx context.Context) error {
 	return nil
 }
 
+// Due returns the moment by which the coordinator promises its next
+// progress mark: two ticks after the last one, the tick being the policy's
+// at that mark, so the quiet tick counts at night. Before the first render
+// the mark is the end of the start grace. A Render stamps progress when it
+// begins and when Show returns, so Due never waits behind a Show in
+// flight. The zero time means nothing is promised: Run has not begun.
+func (c *Coordinator) Due() time.Time {
+	c.mu.Lock()
+	mark := c.mark
+	c.mu.Unlock()
+	if mark.IsZero() {
+		return time.Time{}
+	}
+	return mark.Add(2 * c.tickAt(mark))
+}
+
 // Wake asks for a render outside the tick: an alert changed, a command
 // arrived. Wakes coalesce.
 func (c *Coordinator) Wake() {
@@ -233,6 +256,13 @@ func (c *Coordinator) NextPage() {
 func (c *Coordinator) Refresh() {
 	c.forget()
 	c.Wake()
+}
+
+// stamp marks progress now.
+func (c *Coordinator) stamp() {
+	c.mu.Lock()
+	c.mark = time.Now()
+	c.mu.Unlock()
 }
 
 // forget marks the glass as unknown.
@@ -318,7 +348,13 @@ func (c *Coordinator) enrich(ctx context.Context, v *scene.View) {
 // policy names the tick: longer in quiet hours.
 func (c *Coordinator) untilNextTick() time.Duration {
 	now := time.Now()
-	tick := c.policy.Tick(now.In(c.locale.Location()))
+	tick := c.tickAt(now)
 	next := now.Truncate(tick).Add(tick)
 	return next.Sub(now)
+}
+
+// tickAt is the policy's tick at t on the display's wall clock. Tick reads
+// only the policy's configuration, so it needs no busy lock.
+func (c *Coordinator) tickAt(t time.Time) time.Duration {
+	return c.policy.Tick(t.In(c.locale.Location()))
 }

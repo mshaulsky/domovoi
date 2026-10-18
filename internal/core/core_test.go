@@ -198,6 +198,34 @@ func TestCoreStop(t *testing.T) {
 	})
 }
 
+func TestCorePing(t *testing.T) {
+	tests := []struct {
+		name    string
+		held    bool
+		wantErr error
+	}{
+		{name: "idle", held: false, wantErr: nil},
+		{name: "mutex held", held: true, wantErr: context.DeadlineExceeded},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Real time: a goroutine waiting on a mutex is not durably
+			// blocked, so a bubble's clock would never reach the deadline.
+			d := newCore(t)
+			if tt.held {
+				d.core.mu.Lock()
+				t.Cleanup(d.core.mu.Unlock) // lets the probing goroutine finish
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+			defer cancel()
+			err := d.core.Ping(ctx)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("Ping = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestCoreOnce(t *testing.T) {
 	boom := errors.New("boom")
 	tests := []struct {

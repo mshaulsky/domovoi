@@ -2,8 +2,6 @@ package application
 
 import (
 	"context"
-	"io"
-	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -12,8 +10,6 @@ import (
 	"testing"
 	"time"
 )
-
-var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 // notifySocket stands in for systemd: a datagram socket in NOTIFY_SOCKET
 // that collects every message sent to it.

@@ -107,8 +107,12 @@ the whole recipe in its header: a `domovoi` user in the `spi` and `gpio`
 groups, the credentials as root-only files under `/etc/credstore`, the
 config in `/etc/domovoi.yaml`, a `-check` before the first start. The unit is
 `Type=notify`: the binary reports when it is ready and feeds the watchdog
-itself, and systemd restarts it if it ever stops. State lives in
-`/var/lib/domovoi`.
+itself, and systemd restarts it if it ever stops. A liveness check backs
+that up: when the core stops answering or a display makes no progress
+within two ticks, the process exits with an error and is restarted. Beside
+the unit,
+[`deploy/systemd/journald-domovoi.conf`](deploy/systemd/journald-domovoi.conf)
+caps the journal at 64 MB. State lives in `/var/lib/domovoi`.
 
 Until the e-ink backend lands, the Pi draws the same PNG a PC does.
 

@@ -10,8 +10,8 @@ import (
 
 // notifier reports the lifecycle to systemd and keeps its watchdog fed.
 // Without NOTIFY_SOCKET (no systemd, -once, tests) every call is a no-op.
-// Until the liveness check of stage 3 exists, the ping asserts only that the
-// application goroutine runs.
+// The ping says only that the process runs; the liveness check (liveness.go)
+// is what ends a process that stopped making progress.
 type notifier struct {
 	log *slog.Logger
 }

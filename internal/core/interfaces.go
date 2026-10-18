@@ -35,9 +35,11 @@ type Poller interface {
 	Once(ctx context.Context) error
 }
 
-// Coordinator renders one display until stopped; Render draws once.
+// Coordinator renders one display until stopped; Render draws once. Due
+// is when its next progress mark is promised, for the liveness check.
 type Coordinator interface {
 	Name() string
+	Due() time.Time
 	Run(ctx context.Context) error
 	Render(ctx context.Context) error
 	Wake()

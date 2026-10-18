@@ -210,6 +210,26 @@ func (c *Core) Stop(ctx context.Context) error {
 	}
 }
 
+// Ping proves the core is responsive: its mutex, which every batch, event
+// and command takes, can be acquired. There is no core loop to watch, so a
+// deadlock on the mutex is what an unresponsive core looks like. When the
+// mutex is truly deadlocked the probing goroutine leaks; the process is
+// about to be restarted.
+func (c *Core) Ping(ctx context.Context) error {
+	acquired := make(chan struct{})
+	go func() {
+		c.mu.Lock()
+		close(acquired)
+		c.mu.Unlock()
+	}()
+	select {
+	case <-acquired:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("core: ping: %w", ctx.Err())
+	}
+}
+
 // Once polls every source a single time, then renders every display once.
 // Every source is tried even if one fails; the errors are joined.
 func (c *Core) Once(ctx context.Context) error {

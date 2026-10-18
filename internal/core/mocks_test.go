@@ -211,6 +211,20 @@ func (m *MockCoordinator) EXPECT() *MockCoordinatorMockRecorder {
 	return m.recorder
 }
 
+// Due mocks base method.
+func (m *MockCoordinator) Due() time.Time {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Due")
+	ret0, _ := ret[0].(time.Time)
+	return ret0
+}
+
+// Due indicates an expected call of Due.
+func (mr *MockCoordinatorMockRecorder) Due() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Due", reflect.TypeOf((*MockCoordinator)(nil).Due))
+}
+
 // Name mocks base method.
 func (m *MockCoordinator) Name() string {
 	m.ctrl.T.Helper()

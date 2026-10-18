@@ -704,6 +704,111 @@ func TestCoordinatorRun(t *testing.T) {
 	})
 }
 
+func TestCoordinatorDue(t *testing.T) {
+	day := policyConfig()
+	day.Tick = time.Minute
+	night := day
+	night.Quiet = Quiet{From: 22 * time.Hour, To: 8 * time.Hour, Tick: 5 * time.Minute, Wash: 4 * time.Hour}
+	// wakeAt renders once at start+10s through a Wake.
+	wakeAt := func(t *testing.T, d deps, c *Coordinator) {
+		d.disp.EXPECT().Show(gomock.Any(), gomock.Any()).Return(nil)
+		time.Sleep(10 * time.Second)
+		c.Wake()
+	}
+	tests := []struct {
+		name   string
+		policy PolicyConfig
+		run    bool
+		act    func(t *testing.T, d deps, c *Coordinator)
+		want   time.Duration // after the start; -1: the zero time
+	}{
+		{
+			name: "nothing promised before Run",
+			run:  false,
+			act:  func(*testing.T, deps, *Coordinator) {},
+			want: -1,
+		},
+		{
+			name: "start grace while waiting for the first frame",
+			run:  true,
+			act:  func(*testing.T, deps, *Coordinator) {},
+			want: 30*time.Second + 2*5*time.Minute,
+		},
+		{
+			name:   "two day ticks after a render",
+			policy: day,
+			run:    true,
+			act:    wakeAt,
+			want:   10*time.Second + 2*time.Minute,
+		},
+		{
+			name:   "two quiet ticks at night",
+			policy: night,
+			run:    true,
+			act: func(t *testing.T, d deps, c *Coordinator) {
+				if got := c.policy.Tick(time.Now()); got != 5*time.Minute {
+					t.Fatalf("Tick at midnight = %v, want the quiet tick", got)
+				}
+				wakeAt(t, d, c)
+			},
+			want: 10*time.Second + 2*5*time.Minute,
+		},
+		{
+			name:   "a show in flight does not block, its end stamps progress",
+			policy: day,
+			run:    true,
+			act: func(t *testing.T, d deps, c *Coordinator) {
+				release := make(chan struct{})
+				d.disp.EXPECT().Show(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(context.Context, display.Frame) error {
+						<-release
+						return nil
+					})
+				start := time.Now()
+				time.Sleep(10 * time.Second)
+				c.Wake()
+				time.Sleep(3 * time.Minute) // Show hangs
+				synctest.Wait()
+				if got, want := c.Due(), start.Add(10*time.Second+2*time.Minute); !got.Equal(want) {
+					t.Errorf("Due() during Show = %v, want %v", got, want)
+				}
+				close(release)
+			},
+			want: 3*time.Minute + 10*time.Second + 2*time.Minute,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				start := time.Now() // midnight UTC
+				d := newDeps(t, 1)
+				c := d.coordinator(t, Config{StartGrace: 30 * time.Second}, tt.policy)
+				d.scenes[0].EXPECT().Render(testSurface, gomock.Any()).Return(frame(0), nil).AnyTimes()
+				ctx, cancel := context.WithCancel(t.Context())
+				done := make(chan error, 1)
+				if tt.run {
+					go func() { done <- c.Run(ctx) }()
+				} else {
+					done <- nil
+				}
+				synctest.Wait()
+				tt.act(t, d, c)
+				synctest.Wait()
+				got := c.Due()
+				cancel()
+				<-done
+				want := start.Add(tt.want)
+				if tt.want < 0 {
+					want = time.Time{}
+				}
+				if !got.Equal(want) {
+					t.Errorf("Due() = %v, want %v", got, want)
+				}
+			})
+		})
+	}
+}
+
 func TestCoordinatorWake(t *testing.T) {
 	d := newDeps(t, 1)
 	c := d.coordinator(t, Config{}, PolicyConfig{})

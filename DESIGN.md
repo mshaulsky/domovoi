@@ -528,16 +528,16 @@ emits `Online` from availability topics and **button clicks as events**.
 ## State and events (`internal/state`)
 
 The single owner of "what is true now": `map[DeviceID]map[Metric]Reading`,
-devices, and **per-source health** (`LastOK`, `LastError`, `Err`). Fed only
-by the core goroutine; readers get snapshots (`Snapshot()` returns an
-immutable copy). Reports changes as `Change{Device, Metric, Old, New}` so
-the core can persist only changes and the renderer can decide whether
-anything visible moved. `Snapshot.Stale(device)` derives from the health of
-the device's source (no successful batch for longer than `stale_after`):
-scenes show "Tuya: no data since 12:03" and dim the tiles instead of
-pretending the devices went offline. At start the State is seeded from the
-last stored point of every series, so the first frame after a reboot is not
-empty.
+devices, and **per-source health** (`LastOK`, `LastError`, `Err`). Fed only by
+the core, in the pollers' goroutines under its mutex; readers get snapshots
+(`Snapshot()` returns an immutable copy). Reports changes as `Change{Device,
+Metric, Old, New}` so the core can persist only changes and the renderer can
+decide whether anything visible moved. `Snapshot.Stale(device)` derives from
+the health of the device's source (no successful batch for longer than
+`stale_after`): scenes show "Tuya: no data since 12:03" and dim the tiles
+instead of pretending the devices went offline. At start the State is seeded
+from the last stored point of every series, so the first frame after a reboot
+is not empty.
 
 A **classifier** turns changes into events using the transition table of
 the metric catalogue in `model`. Events from watchers (button) pass through as they are. Events go
@@ -1231,13 +1231,15 @@ Button / httpd / Telegram ──Commands─────────────�
                                         render coordinators (1/display) ──▶ Display.Show
 ```
 
-The core goroutine owns State; render coordinators (`internal/render`, one
-per display) take snapshots, render, apply the refresh policy and call `Show` (which may block 19 s — that is why
-each display has its own goroutine). Flags: `-config`, `-once` (poll, render
-every display once, exit), later `-preview out.png` (render scenes from a
-JSON fixture without any source — the dev loop on the PC). SIGTERM cancels
-the root context: modules stop bottom-up, the panel goes to sleep. A systemd
-unit with `LoadCredential=` lines (see Secrets).
+The core owns State (there is no core goroutine: batches are applied in the
+pollers' goroutines under the core's mutex); render coordinators
+(`internal/render`, one per display) take snapshots, render, apply the refresh
+policy and call `Show` (which may block 19 s — that is why each display has
+its own goroutine). Flags: `-config`, `-once` (poll, render every display
+once, exit), later `-preview out.png` (render scenes from a JSON fixture
+without any source — the dev loop on the PC). SIGTERM cancels the root
+context: modules stop bottom-up, the panel goes to sleep. A systemd unit with
+`LoadCredential=` lines (see Secrets).
 
 ## Startup, deployment, unattended operation
 
@@ -1258,12 +1260,31 @@ An appliance nobody watches. The rules:
   application reports `READY=1` once every module started, `STOPPING=1` on
   shutdown, and feeds `WATCHDOG=1` at half of `WatchdogSec` through
   `coreos/go-systemd/v22/daemon` (no-ops without `NOTIFY_SOCKET`, so Docker
-  and `-once` are unaffected). Stage 3 adds the check itself: a goroutine
-  verifies that the core loop and every render coordinator have made
-  progress within `2 × tick` (the longer quiet tick at night), gates the
-  watchdog ping on it, and exits non-zero without systemd — whatever
-  supervises the process restarts it, systemd (`Restart=always`) or Docker
-  (`restart: unless-stopped`) alike.
+  and `-once` are unaffected). The ping says only that the process runs;
+  a liveness check every 30 s is what catches a process that stopped
+  making progress. The core has no loop of its own — batches, events and
+  commands run in their callers' goroutines under its mutex — so its
+  liveness is that mutex: `Core.Ping` acquires it within 5 s or fails (a
+  deadlock there is a real bug class; the probe goroutine of a truly
+  deadlocked core leaks, and the process is about to go anyway). Every
+  render coordinator promises its next progress mark through `Due`: two
+  ticks after the last mark, the tick being the policy's at that mark (the
+  longer quiet tick at night); before the first frame the mark is the end
+  of the start grace, which can be a slow source's whole poll interval. A
+  render stamps progress when it begins and again when `Show` returns, so a
+  slow or hung `Show` counts only once it outlasts its own timeout, and
+  `Due` takes the state lock, never the render lock, so it does not wait
+  behind a frame in flight. On the first failure the root context is
+  cancelled with the failure as its cause: the modules stop gracefully and
+  `Run` returns that cause, so the process exits 1 — whatever supervises
+  it restarts it, systemd (`Restart=always`) or Docker
+  (`restart: unless-stopped`) alike. A deadlocked core would hang that
+  graceful stop (`Core.Stop` takes the mutex first), so once shutdown
+  begins a guard exits with code 2 when the modules' stop outlasts its
+  budget plus 5 s; under systemd the watchdog would kill it as well,
+  without systemd the guard is the only guarantee. Gating the ping on the
+  check was considered and dropped: with the check ending the process, it
+  would be a second path to the same restart.
 - **Two packagings, one binary.** `deploy/systemd/domovoi.service`
   (`Type=notify`, `Restart=always`, `WatchdogSec=120`,
   `WorkingDirectory=/var/lib/domovoi`, `LoadCredential=` lines,
@@ -1279,7 +1300,9 @@ An appliance nobody watches. The rules:
   gain with one static binary. The Compose packaging is kept as an
   optional second target (a mini-PC, another box), built from the same
   image recipe; the design does not care which supervisor runs it.
-- **Disk full**: the journal size is capped (`SystemMaxUse=`), readings
+- **Disk full**: the journal size is capped (`SystemMaxUse=64M` in the
+  drop-in `deploy/systemd/journald-domovoi.conf`, installed as
+  `/etc/systemd/journald.conf.d/domovoi.conf`), readings
   writes that fail are logged once and dropped — the display keeps working
   from the State.
 - **Flags**: `-config`, `-check` (load and validate the config, resolve

@@ -70,8 +70,8 @@ func Run(ctx context.Context, opts Options) error {
 			return fmt.Errorf("register module %s: %w", m.Name(), err)
 		}
 	}
-	displays, err := assemble(c, cfg, mods)
-	defer closeDisplays(context.WithoutCancel(ctx), displays, log) // also the ones built before a failure
+	a, err := assemble(c, cfg, mods)
+	defer closeDisplays(context.WithoutCancel(ctx), a.displays, log) // also the ones built before a failure
 	if err != nil {
 		return err
 	}
@@ -103,18 +103,27 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	stopTimeout := stopTimeoutFor(displays)
+	stopTimeout := stopTimeoutFor(a.displays)
 	started, err := startAll(ctx, mods, log)
 	if err != nil {
 		stopAll(started, log, stopTimeout)
 		return err
 	}
+	co, err := c.Core.Get()
+	if err != nil {
+		stopAll(started, log, stopTimeout)
+		return err
+	}
+	live := &liveness{core: co, coordinators: a.progressors(), log: log}
 	sd := notifier{log: log}
 	sd.ready()
 	watchdogCtx, stopWatchdog := context.WithCancel(context.WithoutCancel(ctx)) // fed until the modules have stopped
 	var wg sync.WaitGroup
 	wg.Go(func() { sd.watchdog(watchdogCtx) })
+	wg.Go(func() { live.run(ctx, livenessEvery, cancel) })
 	<-ctx.Done()
+	disarm := shutdownGuard(stopTimeout+shutdownSlack, log) // a deadlocked core would hang stopAll
+	defer disarm()
 	sd.stopping()
 	stopAll(started, log, stopTimeout)
 	stopWatchdog()
@@ -125,6 +134,22 @@ func Run(ctx context.Context, opts Options) error {
 	return context.Cause(ctx)
 }
 
+// assembly is what assemble built: the displays, which the application
+// closes, and their coordinators, which the liveness check watches.
+type assembly struct {
+	displays     []display.Display
+	coordinators []*render.Coordinator
+}
+
+// progressors returns the coordinators as the liveness check sees them.
+func (a assembly) progressors() []progressor {
+	out := make([]progressor, 0, len(a.coordinators))
+	for _, co := range a.coordinators {
+		out = append(out, co)
+	}
+	return out
+}
+
 // startSlack is added to the longest poll timeout to get the start grace:
 // the first frame should show the first answers, not precede them.
 const startSlack = 5 * time.Second
@@ -133,27 +158,27 @@ const startSlack = 5 * time.Second
 // source section, a display and its coordinator per display section — then
 // lets the modules that implement container.Assembler add their wiring.
 // Displays built before a failure are returned so the caller can close them.
-func assemble(c *container.Container, cfg config.Config, mods []container.Module) ([]display.Display, error) {
+func assemble(c *container.Container, cfg config.Config, mods []container.Module) (assembly, error) {
 	w, err := newWiring(c, cfg)
 	if err != nil {
-		return nil, err
+		return assembly{}, err
 	}
 	grace, err := w.sources()
 	if err != nil {
-		return nil, err
+		return assembly{}, err
 	}
-	displays, err := w.displays(grace)
+	a, err := w.displays(grace)
 	if err != nil {
-		return displays, err
+		return a, err
 	}
 	for _, m := range mods {
-		if a, ok := m.(container.Assembler); ok {
-			if err := a.Assemble(c, cfg); err != nil {
-				return displays, fmt.Errorf("assemble module %s: %w", m.Name(), err)
+		if as, ok := m.(container.Assembler); ok {
+			if err := as.Assemble(c, cfg); err != nil {
+				return a, fmt.Errorf("assemble module %s: %w", m.Name(), err)
 			}
 		}
 	}
-	return displays, nil
+	return a, nil
 }
 
 // wiring is what every instance is built with.
@@ -219,29 +244,29 @@ func (w wiring) sources() (time.Duration, error) {
 }
 
 // displays builds a display and its coordinator per section.
-func (w wiring) displays(grace time.Duration) ([]display.Display, error) {
-	var displays []display.Display
+func (w wiring) displays(grace time.Duration) (assembly, error) {
+	var a assembly
 	for _, dc := range w.cfg.Displays {
 		ctor, err := w.c.Displays.Get(dc.Kind)
 		if err != nil {
-			return displays, fmt.Errorf("display %s: %w", dc.Name, err)
+			return a, fmt.Errorf("display %s: %w", dc.Name, err)
 		}
 		disp, err := ctor(dc)
 		if err != nil {
-			return displays, err
+			return a, err
 		}
-		displays = append(displays, disp)
+		a.displays = append(a.displays, disp)
 		scenes := make([]render.Scene, 0, len(dc.Scenes))
 		for _, name := range dc.Scenes {
 			sc, err := w.c.Scenes.Get(name)
 			if err != nil {
-				return displays, fmt.Errorf("display %s: scene %s: %w", dc.Name, name, err)
+				return a, fmt.Errorf("display %s: scene %s: %w", dc.Name, name, err)
 			}
 			scenes = append(scenes, sc)
 		}
 		bundle, err := i18n.Load(dc.Language)
 		if err != nil {
-			return displays, fmt.Errorf("display %s: %w", dc.Name, err)
+			return a, fmt.Errorf("display %s: %w", dc.Name, err)
 		}
 		policy, err := render.NewPolicy(render.PolicyConfig{
 			Tick:            dc.Tick,
@@ -257,7 +282,7 @@ func (w wiring) displays(grace time.Duration) ([]display.Display, error) {
 			},
 		})
 		if err != nil {
-			return displays, fmt.Errorf("display %s: %w", dc.Name, err)
+			return a, fmt.Errorf("display %s: %w", dc.Name, err)
 		}
 		co, err := render.New(
 			render.Config{Name: dc.Name, StartGrace: grace},
@@ -271,11 +296,11 @@ func (w wiring) displays(grace time.Duration) ([]display.Display, error) {
 			w.metrics,
 		)
 		if err != nil {
-			return displays, err
+			return a, err
 		}
 		w.core.AddCoordinator(co)
 	}
-	return displays, nil
+	return a, nil
 }
 
 // stopTimeoutFor is StopTimeout plus the slowest panel's full refresh, so a
