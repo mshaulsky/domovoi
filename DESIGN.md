@@ -492,10 +492,22 @@ A dedicated Aqara account, shared into the home as a family member, keeps
 the owner's password off the Pi; its MD5 is what the credential store holds
 (the client takes only the digest, never the password). Verified live: the
 member account's key reads every device, and a new sign-in does not revoke
-earlier keys. **Endpoint IDs are per account**: the same devices carry
-different `Aqr~…` IDs under the owner's key and under the member's, so
-switching accounts changes every `aqara:` device ID — the listing rule in
-the State section retires the old ones.
+earlier keys. **Endpoint IDs are per sign-in**: endpoint, position and home
+IDs (`Aqr~…`) are minted afresh for every key and live as long as it does
+(the earlier check compared only two accounts and read the difference as
+per account; a new key for the same account changes them just the same),
+and no tool hands out anything stable — the firmware tool repeats the
+endpoint ID. Keyed on endpoints, every restart and every key renewal turned
+each device into a new one. So the adapter's device ID is
+`aqara:<Fingerprint>` — `aqaramcp.Device.Fingerprint`, the lower-cased type
+plus 8 hex digits of a hash of type, name and room, the only attributes
+that survive a new key (e.g. `aqara:doorlock-3f9a1c2b`): restarts and key
+renewals keep the IDs and the history. The price is stated: renaming a
+device in the app or moving it to another room makes it a new device, and
+the listing rule in the State section retires the old one. Devices that
+share type, name and room share a fingerprint, which identifies none of
+them: they fall back to their endpoint IDs (unstable across keys, as
+before), and a Warn once per process asks for one of them to be renamed.
 
 **weather** (stage 2) — a virtual source on Open-Meteo (free, no key, JSON):
 one request every `interval` (default 20 min) for current conditions plus
@@ -538,7 +550,8 @@ weather on every poll), so devices of that source missing from it are
 *retired*: dropped from the state with their readings, logged by the core,
 gone from the next frame. History stays in storage. That is how a device
 removed from the account, a sensor re-paired under a new ID, or the ghosts
-of a different cloud account (Aqara's endpoint IDs are per account) leave
+of an earlier Aqara key or account (its endpoint IDs are minted per sign-in;
+the adapter's fingerprints exist so this does not recur on every restart) leave
 the screen without anyone editing a database. An empty listing is
 distrusted and retires no one: a cloud answering nothing is far likelier
 than a home with nothing in it. `Restore` seeds what the database knows
@@ -804,7 +817,7 @@ alerts:
     metric: leak
     when: is_true
     severity: urgent
-    action: {device: "aqara:Aqr~…", metric: power, value: false}   # automation hook, later
+    action: {device: "aqara:outlet-…", metric: power, value: false}   # automation hook, later
   - name: door unlocked
     metric: locked
     when: is_false

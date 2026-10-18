@@ -24,6 +24,7 @@ type Source struct {
 	mu         sync.Mutex
 	seen       map[string]bool // status keys dropped, logged once
 	lockStates map[string]bool // lock_state values met, logged once
+	shared     map[string]bool // fingerprints shared by several devices, logged once
 }
 
 // Config is what the source needs; the credential is handled by the caller,
@@ -61,6 +62,7 @@ func New(cfg Config, client Client, log *slog.Logger, m Metrics) (*Source, error
 		metrics:    m,
 		seen:       map[string]bool{},
 		lockStates: map[string]bool{},
+		shared:     map[string]bool{},
 	}, nil
 }
 
@@ -70,7 +72,9 @@ func (s *Source) Name() string {
 }
 
 // Poll reads every device's status in one call. The answer carries names,
-// types and rooms, so Batch.Devices is filled on every poll.
+// types and rooms, so Batch.Devices is filled on every poll. Device IDs come
+// from the fingerprint, since endpoint IDs change with every sign-in;
+// devices that share a fingerprint keep their endpoint IDs instead.
 func (s *Source) Poll(ctx context.Context) (source.Batch, error) {
 	now := time.Now()
 	s.metrics.IncRequest(s.cfg.Name)
@@ -78,9 +82,22 @@ func (s *Source) Poll(ctx context.Context) (source.Batch, error) {
 	if err != nil {
 		return source.Batch{}, fmt.Errorf("aqara: read statuses: %w", err)
 	}
+	// Two passes, so which devices keep a fingerprint does not depend on
+	// the listing order.
+	endpoints := map[string][]string{}
+	for _, st := range statuses {
+		fp := st.Fingerprint()
+		endpoints[fp] = append(endpoints[fp], st.EndpointID)
+	}
 	batch := source.Batch{Devices: make([]model.Device, 0, len(statuses))}
 	for _, st := range statuses {
-		id := model.NewDeviceID(s.cfg.Name, st.EndpointID)
+		fp := st.Fingerprint()
+		id := model.NewDeviceID(s.cfg.Name, fp)
+		if shared := endpoints[fp]; len(shared) > 1 {
+			// A fingerprint several devices share identifies none of them.
+			s.sharedFingerprint(fp, shared)
+			id = model.NewDeviceID(s.cfg.Name, st.EndpointID)
+		}
 		batch.Devices = append(batch.Devices, model.Device{
 			ID:   id,
 			Name: st.DeviceName,
@@ -132,6 +149,19 @@ func (s *Source) noteLockState(id model.DeviceID, value string) {
 	}
 	s.lockStates[value] = true
 	s.log.Info("lock_state value observed", "device", id, "value", value, "read_as_locked", value == lockedState)
+}
+
+// sharedFingerprint warns once per fingerprint that several devices share
+// it and so fall back to IDs that change with the next sign-in.
+func (s *Source) sharedFingerprint(fp string, endpointIDs []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.shared[fp] {
+		return
+	}
+	s.shared[fp] = true
+	s.log.Warn("devices share name, type and room; rename one in the app so they keep stable IDs",
+		"fingerprint", fp, "endpoints", endpointIDs)
 }
 
 // dropped logs an unmapped status key once.

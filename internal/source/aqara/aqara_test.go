@@ -14,7 +14,6 @@ import (
 	"github.com/mshaulsky/aqaramcp"
 
 	"github.com/mshaulsky/domovoi/internal/model"
-	"github.com/mshaulsky/domovoi/internal/source"
 )
 
 var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -57,6 +56,12 @@ var (
 		Type:         aqaramcp.TypeDoorLock,
 		PositionName: "Прихожая",
 	}
+	curtain = aqaramcp.Device{
+		EndpointID:   "Aqr~sw",
+		DeviceName:   "Выключатель",
+		Type:         "Curtain",
+		PositionName: "Зал",
+	}
 )
 
 // values is the readings of one batch, by device and metric.
@@ -67,6 +72,16 @@ type pollWant struct {
 	devices  []model.Device
 	readings values
 	requests int
+}
+
+// byPrint is the device ID the source gives a device: its fingerprint.
+func byPrint(d aqaramcp.Device) model.DeviceID {
+	return model.NewDeviceID("aqara", d.Fingerprint())
+}
+
+// byEndpoint is the fallback ID of a device whose fingerprint is shared.
+func byEndpoint(d aqaramcp.Device) model.DeviceID {
+	return model.NewDeviceID("aqara", d.EndpointID)
 }
 
 func status(d aqaramcp.Device, kv ...string) aqaramcp.DeviceStatus {
@@ -130,6 +145,13 @@ func TestSourceName(t *testing.T) {
 func TestSourcePoll(t *testing.T) {
 	boom := errors.New("boom")
 	on, off := model.BoolValue(true), model.BoolValue(false)
+	// The lock and a leak sensor as a later sign-in lists them: new endpoint and position IDs.
+	lockAgain, leak1Again := lock, leak1
+	lockAgain.EndpointID, lockAgain.PositionID = "Aqr~lock-next", "Aqr~hall-next"
+	leak1Again.EndpointID, leak1Again.PositionID = "Aqr~leak1-next", "Aqr~hall-next"
+	// leak2Twin has the type, name and room of leak2, so their fingerprints collide.
+	leak2Twin := leak2
+	leak2Twin.EndpointID = "Aqr~leak3"
 	tests := []struct {
 		name    string
 		setup   func(c *MockClient)
@@ -153,49 +175,125 @@ func TestSourcePoll(t *testing.T) {
 			want: pollWant{
 				devices: []model.Device{
 					{
-						ID:   "aqara:Aqr~hub",
+						ID:   byPrint(hub),
 						Name: "Центр умного дома M3",
 						Room: "Комната по умолчанию",
 						Kind: model.KindHub,
 					},
 					{
-						ID:   "aqara:Aqr~leak1",
+						ID:   byPrint(leak1),
 						Name: "Протечка стиралки",
 						Room: "Прихожая",
 						Kind: model.KindLeakSensor,
 					},
 					{
-						ID:   "aqara:Aqr~washer",
+						ID:   byPrint(washer),
 						Name: "Розетка стиралка",
 						Room: "Прихожая",
 						Kind: model.KindOutlet,
 					},
 					{
-						ID:   "aqara:Aqr~button",
+						ID:   byPrint(button),
 						Name: "Кнопка замка",
 						Room: "Прихожая",
 						Kind: model.KindButton,
 					},
 					{
-						ID:   "aqara:Aqr~lock",
+						ID:   byPrint(lock),
 						Name: "Дверной замок (U200)",
 						Room: "Прихожая",
 						Kind: model.KindLock,
 					},
 					{
-						ID:   "aqara:Aqr~leak2",
+						ID:   byPrint(leak2),
 						Name: "Протечка ванная",
 						Room: "Ванная",
 						Kind: model.KindLeakSensor,
 					},
 				},
 				readings: values{
-					"aqara:Aqr~hub":    {model.Online: on},
-					"aqara:Aqr~leak1":  {model.Leak: off, model.Online: on},
-					"aqara:Aqr~washer": {model.Power: on, model.Online: on},
-					"aqara:Aqr~button": {model.Online: off},
-					"aqara:Aqr~lock":   {model.Locked: on, model.Online: on},
-					"aqara:Aqr~leak2":  {model.Leak: on, model.Online: on},
+					byPrint(hub):    {model.Online: on},
+					byPrint(leak1):  {model.Leak: off, model.Online: on},
+					byPrint(washer): {model.Power: on, model.Online: on},
+					byPrint(button): {model.Online: off},
+					byPrint(lock):   {model.Locked: on, model.Online: on},
+					byPrint(leak2):  {model.Leak: on, model.Online: on},
+				},
+				requests: 2,
+			},
+		},
+		{
+			name: "IDs come from the fingerprint, so a new sign-in keeps them",
+			setup: func(c *MockClient) {
+				gomock.InOrder(
+					c.EXPECT().Statuses(gomock.Any(), gomock.Any()).Return([]aqaramcp.DeviceStatus{
+						status(lock, "lock_state", "1", "online_offline", "online"),
+						status(leak1, "water_leak", "False", "online_offline", "online"),
+					}, nil),
+					c.EXPECT().Statuses(gomock.Any(), gomock.Any()).Return([]aqaramcp.DeviceStatus{
+						status(lockAgain, "lock_state", "1", "online_offline", "online"),
+						status(leak1Again, "water_leak", "False", "online_offline", "online"),
+					}, nil),
+				)
+			},
+			polls: 2,
+			want: pollWant{
+				devices: []model.Device{
+					{
+						ID:   byPrint(lock),
+						Name: "Дверной замок (U200)",
+						Room: "Прихожая",
+						Kind: model.KindLock,
+					},
+					{
+						ID:   byPrint(leak1),
+						Name: "Протечка стиралки",
+						Room: "Прихожая",
+						Kind: model.KindLeakSensor,
+					},
+				},
+				readings: values{
+					byPrint(lock):  {model.Locked: on, model.Online: on},
+					byPrint(leak1): {model.Leak: off, model.Online: on},
+				},
+				requests: 2,
+			},
+		},
+		{
+			name: "devices sharing type, name and room fall back to endpoint IDs",
+			setup: func(c *MockClient) {
+				c.EXPECT().Statuses(gomock.Any(), gomock.Any()).Return([]aqaramcp.DeviceStatus{
+					status(leak2, "water_leak", "False", "online_offline", "online"),
+					status(lock, "lock_state", "1", "online_offline", "online"),
+					status(leak2Twin, "water_leak", "True", "online_offline", "offline"),
+				}, nil).Times(2)
+			},
+			polls: 2,
+			want: pollWant{
+				devices: []model.Device{
+					{
+						ID:   byEndpoint(leak2),
+						Name: "Протечка ванная",
+						Room: "Ванная",
+						Kind: model.KindLeakSensor,
+					},
+					{
+						ID:   byPrint(lock),
+						Name: "Дверной замок (U200)",
+						Room: "Прихожая",
+						Kind: model.KindLock,
+					},
+					{
+						ID:   byEndpoint(leak2Twin),
+						Name: "Протечка ванная",
+						Room: "Ванная",
+						Kind: model.KindLeakSensor,
+					},
+				},
+				readings: values{
+					byEndpoint(leak2):     {model.Leak: off, model.Online: on},
+					byPrint(lock):         {model.Locked: on, model.Online: on},
+					byEndpoint(leak2Twin): {model.Leak: on, model.Online: off},
 				},
 				requests: 2,
 			},
@@ -211,25 +309,19 @@ func TestSourcePoll(t *testing.T) {
 			want: pollWant{
 				devices: []model.Device{
 					{
-						ID:   "aqara:Aqr~lock",
+						ID:   byPrint(lock),
 						Name: "Дверной замок (U200)",
 						Room: "Прихожая",
 						Kind: model.KindLock,
 					},
 				},
-				readings: values{"aqara:Aqr~lock": {model.Locked: off, model.Online: on}},
+				readings: values{byPrint(lock): {model.Locked: off, model.Online: on}},
 				requests: 1,
 			},
 		},
 		{
 			name: "outlet off, unknown keys and bad flags dropped, unknown type is other",
 			setup: func(c *MockClient) {
-				sw := aqaramcp.Device{
-					EndpointID:   "Aqr~sw",
-					DeviceName:   "Выключатель",
-					Type:         "Curtain",
-					PositionName: "Зал",
-				}
 				c.EXPECT().Statuses(gomock.Any(), gomock.Any()).Return([]aqaramcp.DeviceStatus{
 					status(
 						washer,
@@ -243,20 +335,20 @@ func TestSourcePoll(t *testing.T) {
 						"x",
 					),
 					status(leak2, "water_leak", "maybe", "online_offline", "online"),
-					status(sw, "online_offline", "online", "curtain_state", "open"),
+					status(curtain, "online_offline", "online", "curtain_state", "open"),
 				}, nil)
 			},
 			polls: 1,
 			want: pollWant{
 				devices: []model.Device{
-					{ID: "aqara:Aqr~washer", Name: "Розетка стиралка", Room: "Прихожая", Kind: model.KindOutlet},
-					{ID: "aqara:Aqr~leak2", Name: "Протечка ванная", Room: "Ванная", Kind: model.KindLeakSensor},
-					{ID: "aqara:Aqr~sw", Name: "Выключатель", Room: "Зал", Kind: model.KindOther},
+					{ID: byPrint(washer), Name: "Розетка стиралка", Room: "Прихожая", Kind: model.KindOutlet},
+					{ID: byPrint(leak2), Name: "Протечка ванная", Room: "Ванная", Kind: model.KindLeakSensor},
+					{ID: byPrint(curtain), Name: "Выключатель", Room: "Зал", Kind: model.KindOther},
 				},
 				readings: values{
-					"aqara:Aqr~washer": {model.Power: off, model.Online: on},
-					"aqara:Aqr~leak2":  {model.Online: on},
-					"aqara:Aqr~sw":     {model.Online: on},
+					byPrint(washer):  {model.Power: off, model.Online: on},
+					byPrint(leak2):   {model.Online: on},
+					byPrint(curtain): {model.Online: on},
 				},
 				requests: 1,
 			},
@@ -270,7 +362,7 @@ func TestSourcePoll(t *testing.T) {
 			want: pollWant{
 				devices: []model.Device{
 					{
-						ID:   "aqara:Aqr~button",
+						ID:   byPrint(button),
 						Name: "Кнопка замка",
 						Room: "Прихожая",
 						Kind: model.KindButton,
@@ -306,27 +398,25 @@ func TestSourcePoll(t *testing.T) {
 				requests := 0
 				m.EXPECT().IncRequest("aqara").Do(func(string) { requests++ }).AnyTimes()
 				tt.setup(client)
-				var (
-					batch source.Batch
-					err   error
-				)
+				// Every poll must answer the same: what a device is called does
+				// not depend on how many polls, or sign-ins, came before.
 				for range tt.polls {
-					batch, err = s.Poll(t.Context())
-				}
-				if tt.wantErr != "" {
-					if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-						t.Fatalf("error = %v, want containing %q", err, tt.wantErr)
+					batch, err := s.Poll(t.Context())
+					if tt.wantErr != "" {
+						if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+							t.Fatalf("error = %v, want containing %q", err, tt.wantErr)
+						}
+						if !errors.Is(err, boom) {
+							t.Error("error does not wrap the client's error")
+						}
+						return
 					}
-					if !errors.Is(err, boom) {
-						t.Error("error does not wrap the client's error")
+					if err != nil {
+						t.Fatal(err)
 					}
-					return
+					assertDevices(t, batch.Devices, tt.want.devices)
+					assertReadings(t, batch.Readings, tt.want.readings, start)
 				}
-				if err != nil {
-					t.Fatal(err)
-				}
-				assertDevices(t, batch.Devices, tt.want.devices)
-				assertReadings(t, batch.Readings, tt.want.readings, start)
 				if requests != tt.want.requests {
 					t.Errorf("requests counted = %d, want %d", requests, tt.want.requests)
 				}
