@@ -911,12 +911,40 @@ itself, because `Close` may arrive while a cancelled `Show` is still
 unwinding and must wait for it before putting the panel to sleep. A `Show`
 cut short by shutdown is not counted as a display error.
 
-Backends: `epd7in5b` (wraps our driver; every `Show` is power-up → Init /
-InitFast / InitPartial → transfer → Sleep, the panel never stays powered
-between frames), `pngfile` (writes the frame, ignores modes), `httpview`
-(keeps the last frame, serves `/frame.png` and a page that reloads it — also
-what the back office and Telegram `/frame` show). Several displays run at
-once, each with its own scenes and loop.
+Backends:
+
+- `epd7in5b` wraps our driver behind a `Panel` interface (the driver's
+  `Device` satisfies it). Its surface is 800×480, three colours, partial
+  windows aligned to 8 columns (the controller addresses columns by the
+  byte), `FullRefresh` 19 s (measured 18.8 s). `Show` validates the frame
+  before touching the panel (an image of exactly the panel's bounds, a
+  partial window that meets the panel, a known mode; after `Close` every
+  `Show` is an error), then runs one cycle bounded by `timeout` (default
+  90 s — a wash is two ~19 s refreshes plus two power-ups): power-up by mode
+  (Full and Wash → `Init`, Fast → `InitFast`, Partial → `InitPartial`),
+  the transfer (Full and Fast → `Display`; Wash → `Clear`, then `Display`;
+  Partial → `DisplayPartial` of the full-size frame with the window at panel
+  coordinates, which the driver widens to multiples of 8 and clips), then
+  `Sleep` — always, even when the power-up or the transfer failed or `ctx`
+  was cancelled, on the display's own 5 s budget detached from `ctx`'s
+  cancellation. The panel never stays powered between frames. Once a
+  power-up has been attempted the panel counts as awake until a `Sleep`
+  succeeds; a power-up or transfer error is returned and takes precedence,
+  while a frame that reached the glass is a success even if only `Sleep`
+  failed (logged as "panel left awake"; the next `Init` resets the panel
+  anyway). `Close` waits for a `Show` in flight, sleeps the panel with the
+  caller's `ctx` only if it is still awake, releases the SPI port and
+  reports both errors. The glue validates rotation (0 or 180), border
+  (white, black, red) and the pins before anything is opened, calls periph's
+  `host.Init` once per process, and opens the panel at 4 MHz. Under
+  `-check` it builds the display against `epd7in5b.NopPanel`, a panel whose
+  calls all succeed at once, so the configuration is validated end to end
+  without opening SPI or GPIO.
+- `pngfile` writes the frame and ignores modes.
+- `httpview` keeps the last frame, serves `/frame.png` and a page that
+  reloads it — also what the back office and Telegram `/frame` show.
+
+Several displays run at once, each with its own scenes and loop.
 
 ### Refresh policy (`internal/render`, display-agnostic)
 
@@ -1116,8 +1144,11 @@ day/night pair via settings).
 ```yaml
 displays:
   - kind: epd7in5b
-    spi: /dev/spidev0.0
-    pins: {dc: GPIO25, rst: GPIO17, busy: GPIO24}
+    spi: SPI0.0           # periph port name; /dev/spidev0.0 works too
+    pins: {rst: GPIO17, dc: GPIO25, busy: GPIO24, power: GPIO18}
+    rotation: 0           # or 180
+    border: white         # black, red
+    timeout: 90s          # one Show, power-up to sleep
     scenes: [overview, climate]
     tick: 1m
     full_every: 1h
@@ -1285,7 +1316,7 @@ pure Go, no cgo.
 | `mshaulsky/aqaramcp` | lock, leaks, outlet | 2 | ours |
 | `modernc.org/sqlite` | history, events, settings | 2 | the proven cgo-free SQLite, arm64 OK; ~9 MB of binary |
 | `github.com/pressly/goose/v3` | schema migrations | 2 | standard format, Go migrations, CLI optional; +1.3 MB measured |
-| `mshaulsky/waveshare-epd7in5b-v2` + `periph.io/x/{conn,host}/v3` | the panel, SPI/GPIO | 3 | ours; periph arrives transitively |
+| `mshaulsky/waveshare-epd7in5b-v2` + `periph.io/x/{conn,host}/v3` | the panel, SPI/GPIO | 3 | ours; periph host/conn: +0.8 MB measured |
 | `github.com/eclipse/paho.golang` | MQTT for Zigbee2MQTT | 5 | actively developed, `autopaho` reconnects |
 | `github.com/skip2/go-qrcode` | QR on screen | later | small, pure Go |
 

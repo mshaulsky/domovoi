@@ -48,3 +48,17 @@ displays:
     #   tick: 5m             # render cadence inside the quiet hours; no fast refreshes there
     #   wash: "04:00"        # once a night: a clear cycle and a full refresh against ghosting
     # language: en
+  # The panel on the Pi: Waveshare 7.5" (B) V2 on the e-Paper Driver HAT.
+  # Every key below shows its default; the refresh keys above apply too.
+  # - kind: epd7in5b
+  #   name: panel
+  #   spi: SPI0.0          # periph SPI port; /dev/spidev0.0 works too
+  #   pins:                # periph GPIO names (BCM)
+  #     rst: GPIO17
+  #     dc: GPIO25
+  #     busy: GPIO24
+  #     power: GPIO18      # none: the board has no power-enable line
+  #   rotation: 0          # 0 or 180: the controller turns the image itself
+  #   border: white        # white, black or red: the ring outside the 800×480 area
+  #   timeout: 90s         # one frame, power-up to sleep
+  #   scenes: [overview]

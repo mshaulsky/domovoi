@@ -14,6 +14,7 @@ func enabled() []container.Module {
 		modules.Aqara{},
 		modules.Weather{},
 		modules.PNGFile{},
+		modules.EPD7in5b{},
 		modules.Scenes{},
 		&modules.Storage{},
 		&modules.Core{},

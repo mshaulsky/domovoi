@@ -137,7 +137,7 @@ func TestRun(t *testing.T) {
 		{
 			name:    "unknown display kind",
 			yaml:    "displays:\n  - kind: hologram\n",
-			wantErr: `unknown kind "hologram" (known: pngfile)`,
+			wantErr: `unknown kind "hologram" (known: epd7in5b, pngfile)`,
 		},
 		{
 			name:    "unknown source kind",

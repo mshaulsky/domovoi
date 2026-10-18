@@ -84,9 +84,10 @@ is a complete, commented example. In short:
   becomes the prefix of every device ID, so once set it stays.
 - `storage` — where the SQLite file lives, how long readings and events are
   kept (90 days), how often an unchanged value still gets a row (hourly).
-- `displays` — for now `pngfile`: the file, the size, monochrome or
-  three-colour, the scenes to show, the render `tick` and how often an
-  unchanged frame is redrawn anyway, plus the refresh policy for e-ink
+- `displays` — `pngfile` (the file, the size, monochrome or three-colour)
+  and `epd7in5b`, the 7.5" panel on the Pi (SPI port, pins, rotation,
+  border colour); for each, the scenes to show, the render `tick` and how
+  often an unchanged frame is redrawn anyway, plus the refresh policy for e-ink
   (spacing of colour refreshes, partial updates, fast mode, and quiet
   hours with a longer tick and a nightly wash).
 
@@ -140,7 +141,8 @@ The code follows that shape:
   per table; `store` is the unit of work.
 - `internal/render`, `internal/scene`, `internal/icon`, `internal/i18n` —
   the coordinator, the widgets and layout, the pictograms, the catalogues.
-- `internal/display` — the display contract and the `pngfile` backend.
+- `internal/display` — the display contract and the `pngfile` and `epd7in5b`
+  backends.
 - `internal/config`, `internal/metrics` — the file with its secrets,
   Prometheus counters for the HTTP server to come.
 
