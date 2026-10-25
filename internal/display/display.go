@@ -16,12 +16,11 @@ type Surface struct {
 	FullRefresh time.Duration // how long a full refresh takes, for scheduling and logs
 }
 
-// Frame is a rendered scene in the display's palette. Window is the region
-// to update for ModePartial and ignored otherwise.
+// Frame is a rendered scene in the display's palette.
 type Frame struct {
-	Image  *image.Paletted
-	Window image.Rectangle
-	Mode   Mode
+	Image   *image.Paletted
+	Windows []image.Rectangle // the regions of a ModePartial update, in the order they are sent
+	Mode    Mode
 }
 
 // Mode is how a frame reaches the glass.

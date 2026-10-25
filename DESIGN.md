@@ -907,9 +907,9 @@ type Surface struct {
 
 // Frame is a rendered scene in the display's palette.
 type Frame struct {
-    Image  *image.Paletted
-    Window image.Rectangle // zero = whole frame
-    Mode   Mode            // Full, Fast, Partial, Wash
+    Image   *image.Paletted
+    Windows []image.Rectangle // the regions of a Partial update, in the order they are sent
+    Mode    Mode              // Full, Fast, Partial, Wash
 }
 
 type Display interface {
@@ -932,14 +932,16 @@ Backends:
   `Device` satisfies it). Its surface is 800×480, three colours, partial
   windows aligned to 8 columns (the controller addresses columns by the
   byte), `FullRefresh` 19 s (measured 18.8 s). `Show` validates the frame
-  before touching the panel (an image of exactly the panel's bounds, a
-  partial window that meets the panel, a known mode; after `Close` every
-  `Show` is an error), then runs one cycle bounded by `timeout` (default
-  90 s — a wash is two ~19 s refreshes plus two power-ups): power-up by mode
-  (Full and Wash → `Init`, Fast → `InitFast`, Partial → `InitPartial`),
+  before touching the panel (an image of exactly the panel's bounds, at
+  least one partial window, each meeting the panel, a known mode; after
+  `Close` every `Show` is an error), then runs one cycle bounded by
+  `timeout` (default 90 s — a wash is two ~19 s refreshes plus two
+  power-ups): power-up by mode (Full and Wash → `Init`, Fast →
+  `InitFast`, Partial → `InitPartial`),
   the transfer (Full and Fast → `Display`; Wash → `Clear`, then `Display`;
-  Partial → `DisplayPartial` of the full-size frame with the window at panel
-  coordinates, which the driver widens to multiples of 8 and clips), then
+  Partial → `DisplayPartial` of the full-size frame for each window in turn,
+  at panel coordinates, which the driver widens to multiples of 8 and clips;
+  the first failure stops the rest), then
   `Sleep` — always, even when the power-up or the transfer failed or `ctx`
   was cancelled, on the display's own 5 s budget detached from `ctx`'s
   cancellation. The panel never stays powered between frames. Once a
@@ -981,7 +983,7 @@ makes the refresh budget hold: two sources polling at different phases, or a
 clock widget, cannot produce two flickers a minute. The time in the header
 is the tick's time, never seconds. With the default one-minute tick it is a
 minute clock: the header changes every tick and the policy sends it as a
-monochrome partial update of the changed window (~2 s of local flicker),
+monochrome partial update of the changed windows (~2 s of local flicker),
 with a colour refresh hourly. Whether that feels acceptable is checked on
 the real panel; `tick: 5m` turns the header back into a freshness stamp.
 
@@ -993,10 +995,10 @@ application glue builds it and hands it to `render.New` ready-made, next to
 the coordinator's own `render.Config` (name and start grace). A decision takes the frame on the glass (nil when
 unknown), the new frame, the `Surface`, the time (in the display's zone) and
 whether the render is urgent (an urgent alert transition — nothing sets it
-before stage 4), and answers a `Decision`: the `Mode`, the `Window` of a
+before stage 4), and answers a `Decision`: the `Mode`, the `Windows` of a
 partial update, `Skip` when nothing is sent, and a short `Reason` for the
 log. The coordinator logs every shown frame at Info (`frame shown` with
-mode, reason, window and time taken), skips at Debug, and counts renders
+mode, reason, windows and time taken), skips at Debug, and counts renders
 per mode. The rules, in order:
 
 - glass unknown (first frame, after a failed `Show` or a `Refresh`) →
@@ -1009,11 +1011,16 @@ per mode. The rules, in order:
   `full_every` (an unchanged frame is refreshed that often too), or the
   display has no partial mode, or `max_partials` partial updates were sent
   since the last colour refresh;
-- otherwise → **Partial** on the bounding box of the changed pixels, grown
-  horizontally to multiples of `Surface.WindowAlign` (8 on our panel), and
-  only if neither frame has red inside that window — a partial update is
-  monochrome and can neither draw nor erase red (panel fact); red inside →
-  a colour refresh;
+- otherwise → **Partial** on the changed regions: changed pixels are marked
+  on a 16-px grid, cells that touch join into one region (the box of their
+  changed pixels), overlapping regions merge, and more than four regions
+  collapse into their union. Each window is grown horizontally to multiples
+  of `Surface.WindowAlign` (8 on our panel) and sent in turn within one
+  power-up, about 2.6 s per window. It goes partial only if neither frame
+  has red inside any window — a partial update is monochrome and can
+  neither draw nor erase red (panel fact); red inside → a colour refresh.
+  So a minute clock and a changed tile far apart are two windows, and red
+  between them no longer forces a colour flash;
 - a colour refresh is **Full** when urgent, in quiet hours or with
   `fast: false`, else **Fast**;
 - never two colour refreshes (Full, Fast and Wash all count) closer than

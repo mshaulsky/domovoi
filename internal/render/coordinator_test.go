@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -119,12 +120,12 @@ func policyConfig() PolicyConfig {
 	return PolicyConfig{MinFullInterval: 3 * time.Minute, MaxPartials: 60, Fast: true}
 }
 
-// expectShow expects one Show with the given mode and window, answering err.
-func expectShow(t *testing.T, d deps, mode display.Mode, window image.Rectangle, err error) *gomock.Call {
+// expectShow expects one Show with the given mode and windows, answering err.
+func expectShow(t *testing.T, d deps, mode display.Mode, windows []image.Rectangle, err error) *gomock.Call {
 	t.Helper()
 	return d.disp.EXPECT().Show(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, f display.Frame) error {
-		if f.Mode != mode || f.Window != window || f.Image == nil {
-			t.Errorf("Show(mode %v, window %v), want mode %v, window %v", f.Mode, f.Window, mode, window)
+		if f.Mode != mode || !slices.Equal(f.Windows, windows) || f.Image == nil {
+			t.Errorf("Show(mode %v, windows %v), want mode %v, windows %v", f.Mode, f.Windows, mode, windows)
 		}
 		return err
 	})
@@ -294,8 +295,8 @@ func TestCoordinatorRender(t *testing.T) {
 			setup: func(t *testing.T, d deps, c *Coordinator) {
 				expectFrames(d, blank, paint(partialSurface, dot{9, 1, black}))
 				gomock.InOrder(
-					expectShow(t, d, display.ModeFull, image.Rectangle{}, nil),
-					expectShow(t, d, display.ModePartial, image.Rect(8, 1, 16, 2), nil),
+					expectShow(t, d, display.ModeFull, nil, nil),
+					expectShow(t, d, display.ModePartial, []image.Rectangle{image.Rect(8, 1, 16, 2)}, nil),
 				)
 				if err := c.Render(t.Context()); err != nil {
 					t.Fatal(err)
@@ -310,8 +311,8 @@ func TestCoordinatorRender(t *testing.T) {
 			setup: func(t *testing.T, d deps, c *Coordinator) {
 				expectFrames(d, blank, paint(partialSurface, dot{9, 1, red}))
 				gomock.InOrder(
-					expectShow(t, d, display.ModeFull, image.Rectangle{}, nil),
-					expectShow(t, d, display.ModeFast, image.Rectangle{}, nil),
+					expectShow(t, d, display.ModeFull, nil, nil),
+					expectShow(t, d, display.ModeFast, nil, nil),
 				)
 				if err := c.Render(t.Context()); err != nil {
 					t.Fatal(err)
@@ -327,8 +328,8 @@ func TestCoordinatorRender(t *testing.T) {
 				changed := paint(partialSurface, dot{9, 1, red})
 				expectFrames(d, blank, changed, changed)
 				gomock.InOrder(
-					expectShow(t, d, display.ModeFull, image.Rectangle{}, nil),
-					expectShow(t, d, display.ModeFast, image.Rectangle{}, nil),
+					expectShow(t, d, display.ModeFull, nil, nil),
+					expectShow(t, d, display.ModeFast, nil, nil),
 				)
 				if err := c.Render(t.Context()); err != nil {
 					t.Fatal(err)
@@ -348,10 +349,10 @@ func TestCoordinatorRender(t *testing.T) {
 				changed := paint(partialSurface, dot{9, 1, black})
 				expectFrames(d, blank, changed, changed)
 				gomock.InOrder(
-					expectShow(t, d, display.ModeFull, image.Rectangle{}, nil),
-					expectShow(t, d, display.ModePartial, image.Rect(8, 1, 16, 2), boom),
+					expectShow(t, d, display.ModeFull, nil, nil),
+					expectShow(t, d, display.ModePartial, []image.Rectangle{image.Rect(8, 1, 16, 2)}, boom),
 					// a small change, but the glass is unknown
-					expectShow(t, d, display.ModeFull, image.Rectangle{}, nil),
+					expectShow(t, d, display.ModeFull, nil, nil),
 				)
 				if err := c.Render(t.Context()); err != nil {
 					t.Fatal(err)

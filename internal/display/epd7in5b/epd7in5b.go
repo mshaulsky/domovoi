@@ -157,8 +157,13 @@ func (d *Display) validate(f display.Frame) error {
 	case display.ModeFull, display.ModeFast, display.ModeWash:
 		return nil
 	case display.ModePartial:
-		if f.Window.Intersect(bounds).Empty() {
-			return fmt.Errorf("epd7in5b: partial window %v is empty or outside the panel %v", f.Window, bounds)
+		if len(f.Windows) == 0 {
+			return errors.New("epd7in5b: partial frame has no window")
+		}
+		for _, w := range f.Windows {
+			if w.Intersect(bounds).Empty() {
+				return fmt.Errorf("epd7in5b: partial window %v is empty or outside the panel %v", w, bounds)
+			}
 		}
 		return nil
 	default:
@@ -180,7 +185,12 @@ func (d *Display) refresh(ctx context.Context, f display.Frame) error {
 		if err := d.panel.InitPartial(ctx); err != nil {
 			return err
 		}
-		return d.panel.DisplayPartial(ctx, f.Image, f.Window)
+		for _, w := range f.Windows { // one power-up, the windows in turn
+			if err := d.panel.DisplayPartial(ctx, f.Image, w); err != nil {
+				return err
+			}
+		}
+		return nil
 	case display.ModeWash:
 		if err := d.panel.Init(ctx); err != nil {
 			return err

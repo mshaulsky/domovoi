@@ -191,7 +191,7 @@ func (c *Coordinator) Render(ctx context.Context) error {
 		c.log.Debug("frame skipped", "scene", sc.Name(), "reason", d.Reason)
 		return nil
 	}
-	frame := display.Frame{Image: img, Window: d.Window, Mode: d.Mode}
+	frame := display.Frame{Image: img, Windows: d.Windows, Mode: d.Mode}
 	err = c.disp.Show(ctx, frame)
 	c.stamp() // a hung Show shows up only once it outlasts its own timeout
 	if err != nil {
@@ -213,7 +213,7 @@ func (c *Coordinator) Render(ctx context.Context) error {
 	c.metrics.ObserveRenderDuration(c.cfg.Name, took)
 	attrs := []any{"scene", sc.Name(), "mode", frame.Mode, "reason", d.Reason, "took", took}
 	if frame.Mode == display.ModePartial {
-		attrs = append(attrs, "window", frame.Window)
+		attrs = append(attrs, "windows", frame.Windows)
 	}
 	c.log.Info("frame shown", attrs...)
 	return nil

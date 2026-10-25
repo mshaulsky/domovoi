@@ -38,6 +38,7 @@ func (p *port) Close() error {
 var (
 	errDriver = errors.New("spi broke")
 	window    = image.Rect(400, 40, 720, 120)
+	second    = image.Rect(0, 400, 80, 440)
 )
 
 func discard() *slog.Logger {
@@ -46,10 +47,17 @@ func discard() *slog.Logger {
 
 func frame(mode display.Mode) display.Frame {
 	return display.Frame{
-		Image:  image.NewPaletted(image.Rect(0, 0, 800, 480), display.ThreeColour()),
-		Window: window,
-		Mode:   mode,
+		Image:   image.NewPaletted(image.Rect(0, 0, 800, 480), display.ThreeColour()),
+		Windows: []image.Rectangle{window},
+		Mode:    mode,
 	}
+}
+
+// twoWindows is a partial frame with two windows.
+func twoWindows() display.Frame {
+	f := frame(display.ModePartial)
+	f.Windows = append(f.Windows, second)
+	return f
 }
 
 func TestNew(t *testing.T) {
@@ -184,6 +192,31 @@ func TestDisplayShow(t *testing.T) {
 			},
 		},
 		{
+			name:  "partial with two windows",
+			frame: twoWindows(),
+			expect: func(_ *testing.T, p *MockPanel, f display.Frame) {
+				gomock.InOrder(
+					p.EXPECT().InitPartial(gomock.Any()),
+					p.EXPECT().DisplayPartial(gomock.Any(), f.Image, window),
+					p.EXPECT().DisplayPartial(gomock.Any(), f.Image, second),
+					p.EXPECT().Sleep(gomock.Any()),
+				)
+			},
+		},
+		{
+			name:  "first window fails",
+			frame: twoWindows(),
+			expect: func(_ *testing.T, p *MockPanel, f display.Frame) {
+				gomock.InOrder(
+					p.EXPECT().InitPartial(gomock.Any()),
+					p.EXPECT().DisplayPartial(gomock.Any(), f.Image, window).Return(errDriver),
+					p.EXPECT().Sleep(gomock.Any()),
+				)
+			},
+			wantErr: "epd7in5b: show partial: spi broke",
+			wantIs:  errDriver,
+		},
+		{
 			name:  "wash",
 			frame: frame(display.ModeWash),
 			expect: func(_ *testing.T, p *MockPanel, f display.Frame) {
@@ -216,11 +249,19 @@ func TestDisplayShow(t *testing.T) {
 		{
 			name: "empty partial window",
 			frame: display.Frame{
-				Image:  image.NewPaletted(image.Rect(0, 0, 800, 480), display.ThreeColour()),
-				Window: image.Rect(900, 0, 1000, 10),
-				Mode:   display.ModePartial,
+				Image:   image.NewPaletted(image.Rect(0, 0, 800, 480), display.ThreeColour()),
+				Windows: []image.Rectangle{window, image.Rect(900, 0, 1000, 10)},
+				Mode:    display.ModePartial,
 			},
 			wantErr: "partial window (900,0)-(1000,10) is empty or outside the panel",
+		},
+		{
+			name: "partial without windows",
+			frame: display.Frame{
+				Image: image.NewPaletted(image.Rect(0, 0, 800, 480), display.ThreeColour()),
+				Mode:  display.ModePartial,
+			},
+			wantErr: "partial frame has no window",
 		},
 		{
 			name:  "display fails",

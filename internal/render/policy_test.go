@@ -2,6 +2,7 @@ package render
 
 import (
 	"image"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,15 @@ import (
 // partialSurface is a 16×2 three-colour panel with 8-pixel windows.
 var partialSurface = display.Surface{
 	Bounds:      image.Rect(0, 0, 16, 2),
+	Palette:     display.ThreeColour(),
+	Partial:     true,
+	WindowAlign: 8,
+	FullRefresh: 19 * time.Second,
+}
+
+// wideSurface is a 64×48 three-colour panel, a grid of 4×3 cells.
+var wideSurface = display.Surface{
+	Bounds:      image.Rect(0, 0, 64, 48),
 	Palette:     display.ThreeColour(),
 	Partial:     true,
 	WindowAlign: 8,
@@ -45,6 +55,11 @@ func paint(s display.Surface, dots ...dot) *image.Paletted {
 		img.SetColorIndex(d.x, d.y, d.c)
 	}
 	return img
+}
+
+// partial is a partial decision on the given windows.
+func partial(windows ...image.Rectangle) Decision {
+	return Decision{Mode: display.ModePartial, Windows: windows, Reason: "partial"}
 }
 
 // clockAt returns 2026-10-11 plus days, at the given wall-clock time.
@@ -217,7 +232,7 @@ func TestPolicyDecide(t *testing.T) {
 			last:    blank,
 			next:    paint(partialSurface, dot{9, 1, black}),
 			now:     noon.Add(time.Minute),
-			want:    Decision{Mode: display.ModePartial, Window: image.Rect(8, 1, 16, 2), Reason: "partial"},
+			want:    partial(image.Rect(8, 1, 16, 2)),
 		},
 		{
 			name:    "erasing black is a partial too",
@@ -225,7 +240,7 @@ func TestPolicyDecide(t *testing.T) {
 			last:    paint(partialSurface, dot{3, 0, black}, dot{4, 1, black}),
 			next:    blank,
 			now:     noon.Add(time.Minute),
-			want:    Decision{Mode: display.ModePartial, Window: image.Rect(0, 0, 8, 2), Reason: "partial"},
+			want:    partial(image.Rect(0, 0, 8, 2)),
 		},
 		{
 			name:    "no alignment keeps the box",
@@ -234,7 +249,7 @@ func TestPolicyDecide(t *testing.T) {
 			last:    blank,
 			next:    paint(partialSurface, dot{9, 1, black}, dot{10, 1, black}),
 			now:     noon.Add(time.Minute),
-			want:    Decision{Mode: display.ModePartial, Window: image.Rect(9, 1, 11, 2), Reason: "partial"},
+			want:    partial(image.Rect(9, 1, 11, 2)),
 		},
 		{
 			name:    "red changed",
@@ -331,7 +346,7 @@ func TestPolicyDecide(t *testing.T) {
 			last:    paint(partialSurface, dot{0, 0, red}),
 			next:    paint(partialSurface, dot{0, 0, red}, dot{3, 1, black}),
 			now:     noon.Add(time.Minute),
-			want:    Decision{Mode: display.ModePartial, Window: image.Rect(0, 1, 8, 2), Reason: "partial"},
+			want:    partial(image.Rect(0, 1, 8, 2)),
 		},
 		{
 			name:    "red outside the window",
@@ -339,7 +354,43 @@ func TestPolicyDecide(t *testing.T) {
 			last:    paint(partialSurface, dot{0, 0, red}),
 			next:    paint(partialSurface, dot{0, 0, red}, dot{12, 0, black}),
 			now:     noon.Add(time.Minute),
-			want:    Decision{Mode: display.ModePartial, Window: image.Rect(8, 0, 16, 1), Reason: "partial"},
+			want:    partial(image.Rect(8, 0, 16, 1)),
+		},
+		{
+			name:    "two distant changes are two windows",
+			history: full,
+			surface: wideSurface,
+			last:    paint(wideSurface),
+			next:    paint(wideSurface, dot{2, 2, black}, dot{60, 40, black}),
+			now:     noon.Add(time.Minute),
+			want:    partial(image.Rect(0, 2, 8, 3), image.Rect(56, 40, 64, 41)),
+		},
+		{
+			name:    "red between two windows stays outside both",
+			history: full,
+			surface: wideSurface,
+			last:    paint(wideSurface, dot{30, 20, red}),
+			next:    paint(wideSurface, dot{30, 20, red}, dot{2, 2, black}, dot{60, 40, black}),
+			now:     noon.Add(time.Minute),
+			want:    partial(image.Rect(0, 2, 8, 3), image.Rect(56, 40, 64, 41)),
+		},
+		{
+			name:    "red inside one of the windows",
+			history: full,
+			surface: wideSurface,
+			last:    paint(wideSurface, dot{5, 2, red}),
+			next:    paint(wideSurface, dot{5, 2, red}, dot{2, 2, black}, dot{60, 40, black}),
+			now:     noon.Add(3 * time.Minute),
+			want:    Decision{Mode: display.ModeFast, Reason: "red in window"},
+		},
+		{
+			name:    "red changed beside a black change",
+			history: full,
+			surface: wideSurface,
+			last:    paint(wideSurface),
+			next:    paint(wideSurface, dot{2, 2, black}, dot{60, 40, red}),
+			now:     noon.Add(3 * time.Minute),
+			want:    Decision{Mode: display.ModeFast, Reason: "red changed"},
 		},
 		{
 			name:    "quiet hours: no fast",
@@ -355,7 +406,7 @@ func TestPolicyDecide(t *testing.T) {
 			last:    blank,
 			next:    paint(partialSurface, dot{1, 1, black}),
 			now:     clockAt(0, 23, 5),
-			want:    Decision{Mode: display.ModePartial, Window: image.Rect(0, 1, 8, 2), Reason: "partial"},
+			want:    partial(image.Rect(0, 1, 8, 2)),
 		},
 		{
 			name:    "wash due",
@@ -395,7 +446,7 @@ func TestPolicyDecide(t *testing.T) {
 			last:    blank,
 			next:    paint(partialSurface, dot{9, 1, black}),
 			now:     clockAt(1, 4, 0),
-			want:    Decision{Mode: display.ModePartial, Window: image.Rect(8, 1, 16, 2), Reason: "partial"},
+			want:    partial(image.Rect(8, 1, 16, 2)),
 		},
 		{
 			name:    "deferred wash happens on the next tick",
@@ -460,8 +511,80 @@ func TestPolicyDecide(t *testing.T) {
 			if s.Bounds.Empty() {
 				s = partialSurface
 			}
-			if got := p.Decide(tt.last, tt.next, s, tt.now, tt.urgent); got != tt.want {
+			if got := p.Decide(tt.last, tt.next, s, tt.now, tt.urgent); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("Decide() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCompare(t *testing.T) {
+	tests := []struct {
+		name    string
+		last    []dot
+		next    []dot
+		want    []image.Rectangle
+		wantRed bool
+	}{
+		{
+			name: "unchanged",
+			last: []dot{{5, 5, black}},
+			next: []dot{{5, 5, black}},
+		},
+		{
+			name: "one change",
+			next: []dot{{2, 2, black}},
+			want: []image.Rectangle{image.Rect(2, 2, 3, 3)},
+		},
+		{
+			name: "two distant changes",
+			next: []dot{{2, 2, black}, {60, 40, black}},
+			want: []image.Rectangle{image.Rect(2, 2, 3, 3), image.Rect(60, 40, 61, 41)},
+		},
+		{
+			name: "changes in adjacent cells",
+			next: []dot{{2, 2, black}, {20, 2, black}},
+			want: []image.Rectangle{image.Rect(2, 2, 21, 3)},
+		},
+		{
+			name: "diagonal cells stay apart",
+			next: []dot{{2, 2, black}, {20, 20, black}},
+			want: []image.Rectangle{image.Rect(2, 2, 3, 3), image.Rect(20, 20, 21, 21)},
+		},
+		{
+			name: "a change across a cell border",
+			next: []dot{{14, 5, black}, {15, 5, black}, {16, 5, black}, {17, 5, black}},
+			want: []image.Rectangle{image.Rect(14, 5, 18, 6)},
+		},
+		{
+			name: "overlapping regions merge",
+			next: []dot{
+				{1, 1, black},
+				{1, 17, black},
+				{1, 33, black},
+				{17, 33, black},
+				{33, 33, black},
+				{33, 1, black},
+			},
+			want: []image.Rectangle{image.Rect(1, 1, 34, 34)},
+		},
+		{
+			name: "more than four regions become their union",
+			next: []dot{{1, 1, black}, {33, 1, black}, {17, 17, black}, {1, 33, black}, {33, 33, black}},
+			want: []image.Rectangle{image.Rect(1, 1, 34, 34)},
+		},
+		{
+			name:    "red changed",
+			last:    []dot{{2, 2, red}},
+			want:    []image.Rectangle{image.Rect(2, 2, 3, 3)},
+			wantRed: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, red := compare(paint(wideSurface, tt.last...), paint(wideSurface, tt.next...))
+			if !reflect.DeepEqual(got, tt.want) || red != tt.wantRed {
+				t.Errorf("compare() = %v, %v, want %v, %v", got, red, tt.want, tt.wantRed)
 			}
 		})
 	}

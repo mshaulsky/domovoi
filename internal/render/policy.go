@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"slices"
 	"time"
 
 	"github.com/mshaulsky/domovoi/internal/display"
 )
 
 // Policy decides how a frame reaches the glass: not at all, a monochrome
-// partial update of the changed window, or a colour refresh (Full, Fast or
+// partial update of the changed windows, or a colour refresh (Full, Fast or
 // the nightly Wash). It is display-agnostic and has no clock: every call
 // takes the time, already in the display's zone. Its bookkeeping — the last
 // colour refresh, the partial updates since, the night of the last wash —
@@ -40,10 +41,10 @@ type PolicyConfig struct {
 
 // Decision is how one frame reaches the glass, or that it does not.
 type Decision struct {
-	Mode   display.Mode
-	Window image.Rectangle // the region of a ModePartial update; empty otherwise
-	Skip   bool            // nothing is sent this tick
-	Reason string          // why, for logs
+	Mode    display.Mode
+	Windows []image.Rectangle // the regions of a ModePartial update, in order; nil otherwise
+	Skip    bool              // nothing is sent this tick
+	Reason  string            // why, for logs
 }
 
 // Quiet is the night: a longer tick, no fast refreshes, and once per night
@@ -73,6 +74,11 @@ const (
 	reasonQuietColor = "quiet"
 
 	day = 24 * time.Hour
+
+	// cell is the side of the grid on which changed pixels are grouped into regions.
+	cell = 16
+	// maxWindows caps the windows of one partial update; more become their union.
+	maxWindows = 4
 )
 
 // accent is the colour a partial update can neither draw nor erase.
@@ -106,8 +112,10 @@ func NewPolicy(cfg PolicyConfig) (*Policy, error) {
 // wash. An unknown glass is always redrawn in full at once: there is
 // nothing on it worth protecting. A wash that falls too close to the last
 // colour refresh is deferred to a later tick, and the frame is decided as on
-// any other tick meanwhile. The spacing of colour refreshes applies only to
-// a surface with a FullRefresh time: an instant display is never too soon.
+// any other tick meanwhile. A partial update sends each changed region as
+// its own window; any window holding red makes it a colour refresh. The
+// spacing of colour refreshes applies only to a surface with a FullRefresh
+// time: an instant display is never too soon.
 func (p *Policy) Decide(last, next *image.Paletted, s display.Surface, now time.Time, urgent bool) Decision {
 	switch {
 	case last == nil:
@@ -120,10 +128,10 @@ func (p *Policy) Decide(last, next *image.Paletted, s display.Surface, now time.
 	if !urgent && p.washDue(now) && !p.tooSoon(s, now) {
 		return Decision{Mode: display.ModeWash, Reason: reasonWash}
 	}
-	box, red := compare(last, next)
+	regions, red := compare(last, next)
 	fullDue := now.Sub(p.lastColour) >= p.cfg.FullEvery
 	switch {
-	case box.Empty() && !fullDue:
+	case len(regions) == 0 && !fullDue:
 		return Decision{Skip: true, Reason: reasonUnchanged}
 	case red:
 		return p.colour(reasonRed, s, now, urgent)
@@ -134,11 +142,15 @@ func (p *Policy) Decide(last, next *image.Paletted, s display.Surface, now time.
 	case p.partials >= p.cfg.MaxPartials:
 		return p.colour(reasonExhausted, s, now, urgent)
 	}
-	window := align(box, s).Intersect(next.Rect)
-	if hasAccent(last, window) || hasAccent(next, window) {
-		return p.colour(reasonRedInside, s, now, urgent)
+	windows := make([]image.Rectangle, len(regions))
+	for i, r := range regions {
+		w := align(r, s).Intersect(next.Rect)
+		if hasAccent(last, w) || hasAccent(next, w) {
+			return p.colour(reasonRedInside, s, now, urgent)
+		}
+		windows[i] = w
 	}
-	return Decision{Mode: display.ModePartial, Window: window, Reason: reasonPartial}
+	return Decision{Mode: display.ModePartial, Windows: windows, Reason: reasonPartial}
 }
 
 // Shown records that d reached the glass; at is the now d was decided
@@ -265,15 +277,19 @@ func within(t, from, to time.Duration) bool {
 	return t >= from || t < to
 }
 
-// compare returns the bounding box of the pixels whose colour differs
-// between two frames of the same bounds, and whether the accent colour is
-// among the changes.
-func compare(a, b *image.Paletted) (box image.Rectangle, red bool) {
+// compare returns the regions where two frames of the same bounds differ,
+// and whether the accent colour is among the changes. Changed pixels are
+// grouped on a grid of cells; 4-connected changed cells form a region, the
+// bounding box of their changed pixels, and overlapping regions merge. More
+// than maxWindows regions collapse into their union.
+func compare(a, b *image.Paletted) (regions []image.Rectangle, red bool) {
 	pa, pb := palette(a.Palette), palette(b.Palette)
-	minX, minY, maxX, maxY := b.Rect.Max.X, b.Rect.Max.Y, b.Rect.Min.X-1, b.Rect.Min.Y-1
-	for y := b.Rect.Min.Y; y < b.Rect.Max.Y; y++ {
-		ia, ib := a.PixOffset(b.Rect.Min.X, y), b.PixOffset(b.Rect.Min.X, y)
-		for x := b.Rect.Min.X; x < b.Rect.Max.X; x++ {
+	r := b.Rect
+	cols, rows := (r.Dx()+cell-1)/cell, (r.Dy()+cell-1)/cell
+	cells := make([]image.Rectangle, cols*rows) // the changed pixels of each cell; empty = none
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		ia, ib := a.PixOffset(r.Min.X, y), b.PixOffset(r.Min.X, y)
+		for x := r.Min.X; x < r.Max.X; x++ {
 			ca, cb := at(pa, a.Pix[ia]), at(pb, b.Pix[ib])
 			ia++
 			ib++
@@ -281,14 +297,73 @@ func compare(a, b *image.Paletted) (box image.Rectangle, red bool) {
 				continue
 			}
 			red = red || ca == accent || cb == accent
-			minX, maxX = min(minX, x), max(maxX, x)
-			minY, maxY = min(minY, y), max(maxY, y)
+			i := (y-r.Min.Y)/cell*cols + (x-r.Min.X)/cell
+			cells[i] = cells[i].Union(image.Rect(x, y, x+1, y+1))
 		}
 	}
-	if maxX < minX {
-		return image.Rectangle{}, false
+	regions = merge(components(cells, cols))
+	if len(regions) > maxWindows {
+		union := image.Rectangle{}
+		for _, g := range regions {
+			union = union.Union(g)
+		}
+		regions = []image.Rectangle{union}
 	}
-	return image.Rect(minX, minY, maxX+1, maxY+1), red
+	return regions, red
+}
+
+// components joins 4-connected non-empty cells of a grid cols wide and
+// returns the union of each group, in raster order of its first cell.
+func components(cells []image.Rectangle, cols int) []image.Rectangle {
+	var out []image.Rectangle
+	seen := make([]bool, len(cells))
+	for start := range cells {
+		if seen[start] || cells[start].Empty() {
+			continue
+		}
+		seen[start] = true
+		box, stack := image.Rectangle{}, []int{start}
+		for len(stack) > 0 {
+			i := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			box = box.Union(cells[i])
+			x, y := i%cols, i/cols
+			for _, n := range [4][2]int{{x - 1, y}, {x + 1, y}, {x, y - 1}, {x, y + 1}} {
+				j := n[1]*cols + n[0]
+				if n[0] < 0 || n[0] >= cols || j < 0 || j >= len(cells) || seen[j] || cells[j].Empty() {
+					continue
+				}
+				seen[j] = true
+				stack = append(stack, j)
+			}
+		}
+		out = append(out, box)
+	}
+	return out
+}
+
+// merge unites overlapping rectangles until none overlap.
+func merge(rs []image.Rectangle) []image.Rectangle {
+	for {
+		i, j, ok := overlapping(rs)
+		if !ok {
+			return rs
+		}
+		rs[i] = rs[i].Union(rs[j])
+		rs = slices.Delete(rs, j, j+1)
+	}
+}
+
+// overlapping finds the first pair of overlapping rectangles.
+func overlapping(rs []image.Rectangle) (i, j int, ok bool) {
+	for i := range rs {
+		for j := i + 1; j < len(rs); j++ {
+			if rs[i].Overlaps(rs[j]) {
+				return i, j, true
+			}
+		}
+	}
+	return 0, 0, false
 }
 
 // hasAccent reports whether any pixel of img inside r is the accent colour.
