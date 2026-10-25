@@ -209,7 +209,8 @@ func TestSnapshotStale(t *testing.T) {
 		name       string
 		lastOK     time.Time // zero = never
 		staleAfter time.Duration
-		seen       time.Time // zero = the device has no readings
+		seen       time.Time  // zero = the device has no readings
+		kind       model.Kind // "" = the snapshot has no Device row
 		at         time.Time
 		want       bool
 	}{
@@ -258,6 +259,37 @@ func TestSnapshotStale(t *testing.T) {
 			at:     epoch,
 			want:   false,
 		},
+		{
+			name:   "climate sensor silent 4 h",
+			lastOK: epoch,
+			seen:   epoch.Add(-4 * time.Hour),
+			kind:   model.KindClimateSensor,
+			at:     epoch,
+			want:   true,
+		},
+		{
+			name:   "outlet silent 4 h",
+			lastOK: epoch,
+			seen:   epoch.Add(-4 * time.Hour),
+			kind:   model.KindOutlet,
+			at:     epoch,
+			want:   false,
+		},
+		{
+			name:   "thermostat silent 4 h",
+			lastOK: epoch,
+			seen:   epoch.Add(-4 * time.Hour),
+			kind:   model.KindThermostat,
+			at:     epoch,
+			want:   false,
+		},
+		{
+			name:   "unknown device silent 4 h",
+			lastOK: epoch,
+			seen:   epoch.Add(-4 * time.Hour),
+			at:     epoch,
+			want:   true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -267,6 +299,9 @@ func TestSnapshotStale(t *testing.T) {
 			}
 			if !tt.lastOK.IsZero() {
 				s.SetHealth("tuya", nil, tt.lastOK)
+			}
+			if tt.kind != "" {
+				s.ApplyDevices([]model.Device{{ID: "tuya:bed", Kind: tt.kind}})
 			}
 			if !tt.seen.IsZero() {
 				s.ApplyReadings([]model.Reading{

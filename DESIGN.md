@@ -447,12 +447,15 @@ falls back to `update_time` (clamped to the poll time) with a warning. The
 State re-stamps a *changed* value with the batch time unless the vendor
 stamp is newer than the last moment the previous value was observed: a
 device's newest reading time is then its last sign of life, and two
-different values never share a moment in history. A device without a sign
-of life for `state.DeviceStaleAfter` (3 h) is stale even on a healthy
+different values never share a moment in history. A climate sensor without
+a sign of life for `state.DeviceStaleAfter` (3 h) is stale even on a healthy
 source, and its tile says "no data since …" where a live tile shows its
-extremes. The cloud's `online` flag is not trusted alone — it stayed true
-for a sensor a day silent. Offline devices are read too, so a tile keeps its
-last known values next to the offline mark. Mapping by
+extremes: sensors report on a schedule, and the cloud's `online` flag is not
+trusted for them — it stayed true for a sensor two weeks silent. Devices that
+speak only when something changes (outlets, thermostats, locks) are judged
+by their `online` flag alone; silence is their normal state. Offline
+devices are read too, so a tile keeps its last known values next to the
+offline mark. Mapping by
 data-point code, scale from the product `Specification`
 fetched once per product and cached (a failed fetch is held off for ten
 minutes and warned once; numbers use the points table's default scales
@@ -538,7 +541,8 @@ the core, in the pollers' goroutines under its mutex; readers get snapshots
 Metric, Old, New}` so the core can persist only changes and the renderer can
 decide whether anything visible moved. `Snapshot.Stale(device)` derives from
 the health of the device's source (no successful batch for longer than
-`stale_after`): scenes show "Tuya: no data since 12:03" and dim the tiles
+`stale_after`) and, for climate sensors, from the device's own silence
+(`DeviceStaleAfter`): scenes show "Tuya: no data since 12:03" and dim the tiles
 instead of pretending the devices went offline. At start the State is seeded
 from the last stored point of every series, so the first frame after a reboot
 is not empty.

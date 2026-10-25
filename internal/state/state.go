@@ -52,13 +52,15 @@ type Snapshot struct {
 const (
 	// DefaultStaleAfter applies to sources nobody configured.
 	DefaultStaleAfter = 15 * time.Minute
-	// DeviceStaleAfter is how long a device may show no sign of life — no
-	// value change, no network event — before it counts as stale even
-	// though its source is healthy: a cloud keeps echoing the last values
-	// of a sensor that stopped reporting. Three hours, because a quiet room
-	// can hold the same reading for a while.
+	// DeviceStaleAfter is how long a periodic device may show no sign of life
+	// before it counts as stale on a healthy source: a cloud keeps echoing a
+	// silent sensor's last values. Three hours, as a quiet room holds a reading.
 	DeviceStaleAfter = 3 * time.Hour
 )
+
+// periodic lists the kinds that report on a schedule, so silence means trouble;
+// every other kind speaks only on change and is judged by its online flag.
+var periodic = map[model.Kind]bool{model.KindClimateSensor: true}
 
 // series identifies one metric of one device.
 type series struct {
@@ -326,11 +328,14 @@ func (sn Snapshot) Device(id model.DeviceID) (model.Device, bool) {
 }
 
 // Stale reports whether the device's data cannot be trusted as current: its
-// source has not delivered recently, or the device itself has been silent
-// for longer than DeviceStaleAfter.
+// source has not delivered recently, or a periodic (or unknown) device has
+// been silent for longer than DeviceStaleAfter.
 func (sn Snapshot) Stale(id model.DeviceID) bool {
 	if sn.SourceStale(id.Source()) {
 		return true
+	}
+	if d, ok := sn.Device(id); ok && !periodic[d.Kind] {
+		return false
 	}
 	seen, ok := sn.Seen(id)
 	return ok && sn.At.Sub(seen) > DeviceStaleAfter
