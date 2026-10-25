@@ -31,6 +31,7 @@ type aqaraSection struct {
 	PasswordMD5 config.Secret `yaml:"password_md5"` // the MD5 of its password, never the password
 	Region      string        `yaml:"region"`       // EU, RU, US, CN, KR or SG
 	Endpoint    string        `yaml:"endpoint"`     // another MCP server; defaults to Aqara's
+	HistoryZone string        `yaml:"history_zone"` // IANA zone the automation history is kept in; default UTC+8
 	// automations whose runs are device events, by a part of their name
 	Automations []struct {
 		Match  string `yaml:"match"`
@@ -89,8 +90,7 @@ func (Aqara) Register(c *container.Container) error {
 		if err != nil {
 			return nil, fmt.Errorf("source %s: %w", cfg.Name, err)
 		}
-		// The server speaks wall-clock minutes of the home, which is where the Pi is.
-		acfg := aqara.Config{Name: cfg.Name, Automations: sec.automations(), Location: time.Local}
+		acfg := aqara.Config{Name: cfg.Name, Automations: sec.automations()}
 		return aqara.New(acfg, client, log, m)
 	})
 }
@@ -98,6 +98,11 @@ func (Aqara) Register(c *container.Container) error {
 // validate checks that the section names a key or a complete account, and
 // that every automation names a device of this source and a device event.
 func (s aqaraSection) validate(name string) error {
+	if s.HistoryZone != "" {
+		if _, err := time.LoadLocation(s.HistoryZone); err != nil {
+			return fmt.Errorf("history_zone: %w", err)
+		}
+	}
 	for i, a := range s.Automations {
 		switch {
 		case strings.TrimSpace(a.Match) == "":
@@ -145,6 +150,10 @@ func (s aqaraSection) options(name string, log *slog.Logger) []aqaramcp.Option {
 	var opts []aqaramcp.Option
 	if s.Endpoint != "" {
 		opts = append(opts, aqaramcp.WithEndpoint(s.Endpoint))
+	}
+	if s.HistoryZone != "" {
+		zone, _ := time.LoadLocation(s.HistoryZone) // validated
+		opts = append(opts, aqaramcp.WithHistoryZone(zone))
 	}
 	if s.Username != "" {
 		creds := aqaramcp.Credentials{

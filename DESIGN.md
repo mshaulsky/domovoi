@@ -484,9 +484,11 @@ unlocked value can be confirmed from the journal. **Events from the
 automation history.** Polling misses every transition shorter than the
 interval: an unlock followed by an auto-lock within seconds never shows in
 `lock_state`. The server has no event log, but the execution history of
-automations is one, at minute resolution: automations set up in the app to
-fire on every unlock and lock make each one a run. With `automations:` in
-the config the adapter asks for the last 30 minutes of the home's history
+automations is one, at minute resolution (kept on the platform's own clock,
+UTC+8 on the RU server; `history_zone` overrides it): automations set up in
+the app to fire on every unlock and lock make each one a run. With
+`automations:` in the config the adapter asks for the last 30 minutes of the
+home's history
 every poll (one more MCP call; the home ID is looked up once and again after
 a failed read, since IDs rotate with the key; a failing read is warned once
 until it recovers) and maps runs to device events

@@ -36,9 +36,8 @@ type Source struct {
 // Config is what the source needs; the credential is handled by the caller,
 // which builds the client.
 type Config struct {
-	Name        string         // source name, prefix of its device IDs
-	Automations []Automation   // automations whose runs are device events; none, no history is read
-	Location    *time.Location // the zone the server speaks its minutes in; nil means time.Local
+	Name        string       // source name, prefix of its device IDs
+	Automations []Automation // automations whose runs are device events; none, no history is read
 }
 
 // lockedState is the lock_state value observed on a locked U200. The
@@ -73,9 +72,6 @@ func New(cfg Config, client Client, log *slog.Logger, m Metrics) (*Source, error
 	}
 	if client == nil {
 		return nil, errors.New("aqara: client is required")
-	}
-	if cfg.Location == nil {
-		cfg.Location = time.Local
 	}
 	return &Source{
 		cfg:        cfg,
@@ -161,7 +157,6 @@ func (s *Source) events(ctx context.Context, now time.Time) []model.Event {
 		}
 		home = homes[0].ID
 	}
-	now = now.In(s.cfg.Location)
 	s.metrics.IncRequest(s.cfg.Name)
 	filter := aqaramcp.AutomationFilter{PositionIDs: []string{home}}
 	runs, err := s.client.AutomationRuns(ctx, now.Add(-historyWindow), now, filter)

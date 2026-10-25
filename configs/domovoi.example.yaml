@@ -19,6 +19,7 @@ sources:
     password_md5: ${AQARA_PASSWORD_MD5} # printf %s "$password" | md5sum — the service only ever sees the MD5
     region: RU                          # the account's region: EU, RU (incl. Kazakhstan), US, CN, KR or SG
     # api_key: ${AQARA_MCP_KEY}         # a key from agent.aqara.com/login instead of, or until it expires before, signing in
+    # history_zone: Asia/Shanghai      # the clock the automation history is kept in; UTC+8 as observed on the RU server
     # Runs of app automations as device events: polling misses a quick unlock. Matched by a part of
     # the automation's name, which the app spells from the trigger (IDs change with every key).
     # automations:

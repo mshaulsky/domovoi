@@ -430,13 +430,12 @@ func TestSourcePoll(t *testing.T) {
 
 func TestSourceEvents(t *testing.T) {
 	boom := errors.New("boom")
-	almaty := time.FixedZone("Almaty", 5*60*60)
 	const (
 		unlocking  = "КОГДА Разблокировать ТОГДА Push-уведомление"
 		buttonLock = "КОГДА Однократное нажатие ТОГДА Умный дверной замок U200 Заблокировать"
 	)
-	// start is where every synctest bubble's clock begins, in the home's zone.
-	start := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC).In(almaty)
+	// start is where every synctest bubble's clock begins.
+	start := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 	// run is a run of an automation that many minutes before the bubble's start.
 	run := func(automation string, minutesAgo int, failed bool) aqaramcp.AutomationRun {
 		at := start.Add(-time.Duration(minutesAgo) * time.Minute)
@@ -546,7 +545,6 @@ func TestSourceEvents(t *testing.T) {
 						{Match: "КОГДА Разблокировать", Device: byPrint(lock), Event: model.EventUnlocked},
 						{Match: "КОГДА Заблокировать", Device: byPrint(lock), Event: model.EventLocked},
 					},
-					Location: almaty,
 				}
 				s, err := New(cfg, client, quiet, m)
 				if err != nil {
@@ -623,14 +621,11 @@ func assertReadings(t *testing.T, readings []model.Reading, want values, stamp t
 // home is the account's only home, as all_homes_inquiry lists it.
 var home = []aqaramcp.Home{{ID: "Aqr~home", Name: "Мой Дом"}}
 
-// history expects one history read of the home over the last historyWindow, in the home's zone.
+// history expects one history read of the home over the last historyWindow.
 func history(c *MockClient, runs []aqaramcp.AutomationRun, err error) *gomock.Call {
 	filter := aqaramcp.AutomationFilter{PositionIDs: []string{"Aqr~home"}}
 	return c.EXPECT().AutomationRuns(gomock.Any(), gomock.Any(), gomock.Any(), filter).DoAndReturn(
 		func(_ context.Context, from, to time.Time, _ aqaramcp.AutomationFilter) ([]aqaramcp.AutomationRun, error) {
-			if from.Location() != to.Location() || from.Location().String() != "Almaty" {
-				return nil, fmt.Errorf("range %v..%v is not in the home's zone", from, to)
-			}
 			if !to.Equal(time.Now()) || to.Sub(from) != historyWindow {
 				return nil, fmt.Errorf("range %v..%v is not the last %v", from, to, historyWindow)
 			}

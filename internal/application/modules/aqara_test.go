@@ -20,6 +20,15 @@ func TestAqaraRegister(t *testing.T) {
 			yaml: "sources:\n  - kind: aqara\n    api_key: ${KEY}\n    endpoint: http://localhost:9/mcp\n" + base,
 		},
 		{
+			name: "history zone",
+			yaml: "sources:\n  - kind: aqara\n    api_key: ${KEY}\n    history_zone: Asia/Shanghai\n" + base,
+		},
+		{
+			name:    "an unknown history zone is refused",
+			yaml:    "sources:\n  - kind: aqara\n    api_key: ${KEY}\n    history_zone: Mars/Olympus\n" + base,
+			wantErr: "history_zone",
+		},
+		{
 			name: "account",
 			yaml: "sources:\n  - kind: aqara\n    username: home@example.com\n" +
 				"    password_md5: 3cb4e732631f47e6eb961f34554b7cde\n    region: ru\n" + base,
