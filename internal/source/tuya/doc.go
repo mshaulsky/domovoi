@@ -5,5 +5,7 @@
 // own and online flags of battery sensors do not change by the minute. Raw
 // integers are scaled through each product's specification, fetched once
 // and cached. Data points that map to no metric are dropped. Readings are
-// stamped with the wall clock; under testing/synctest it is virtual.
+// stamped with their point's time from the device shadow, fetched on listing
+// polls, or with the device's update time; under testing/synctest the clock
+// is virtual.
 package tuya

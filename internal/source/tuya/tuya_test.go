@@ -1,6 +1,7 @@
 package tuya
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -40,7 +41,9 @@ type values map[model.DeviceID]map[model.Metric]model.Value
 type pollWant struct {
 	devices  []model.Device // nil = the last batch reported no device change
 	readings values
+	ages     map[model.Metric]time.Duration // per-metric age from the shadow, overriding the case's age
 	requests int
+	warn     string // a substring the log must carry
 }
 
 func dp(code string, v any) tuyacloud.DataPoint {
@@ -48,12 +51,17 @@ func dp(code string, v any) tuyacloud.DataPoint {
 	return tuyacloud.DataPoint{Code: code, Value: b}
 }
 
-func newSource(t *testing.T) (*Source, *MockClient, *MockMetrics) {
+// prop is a shadow property reported at the given moment.
+func prop(code string, at time.Time) tuyacloud.Property {
+	return tuyacloud.Property{Code: code, Time: at.UnixMilli()}
+}
+
+func newSource(t *testing.T, log *slog.Logger) (*Source, *MockClient, *MockMetrics) {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	client := NewMockClient(ctrl)
 	m := NewMockMetrics(ctrl)
-	s, err := New(Config{Name: "tuya", ListEvery: 2}, client, quiet, m)
+	s, err := New(Config{Name: "tuya", ListEvery: 2}, client, log, m)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +101,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestSourceName(t *testing.T) {
-	s, _, _ := newSource(t)
+	s, _, _ := newSource(t, quiet)
 	if got := s.Name(); got != "tuya" {
 		t.Errorf("Name() = %q", got)
 	}
@@ -114,6 +122,9 @@ func TestSourcePoll(t *testing.T) {
 			name: "devices, online flags and scaled points",
 			setup: func(c *MockClient) {
 				c.EXPECT().Devices(gomock.Any()).Return([]tuyacloud.Device{office, kitchen, strip}, nil)
+				c.EXPECT().ShadowProperties(gomock.Any(), "bf22").Return(nil, nil)
+				c.EXPECT().ShadowProperties(gomock.Any(), "bf06").Return(nil, nil)
+				c.EXPECT().ShadowProperties(gomock.Any(), "bf21").Return(nil, nil)
 				c.EXPECT().DevicesStatus(gomock.Any(), "bf22", "bf06", "bf21").Return(map[string]tuyacloud.Status{
 					"bf22": {
 						dp("va_temperature", 224),
@@ -153,13 +164,14 @@ func TestSourcePoll(t *testing.T) {
 						model.Power:  model.BoolValue(true),
 					},
 				},
-				requests: 4, // listing, one status batch, two specifications
+				requests: 7, // listing, three shadows, one status batch, two specifications
 			},
 		},
 		{
 			name: "specification cached, listing not repeated between due polls",
 			setup: func(c *MockClient) {
 				c.EXPECT().Devices(gomock.Any()).Return([]tuyacloud.Device{office}, nil).Times(1)
+				c.EXPECT().ShadowProperties(gomock.Any(), "bf22").Return(nil, nil).Times(1)
 				c.EXPECT().DevicesStatus(gomock.Any(), "bf22").Return(map[string]tuyacloud.Status{
 					"bf22": {dp("va_temperature", 210)},
 				}, nil).Times(2)
@@ -169,13 +181,14 @@ func TestSourcePoll(t *testing.T) {
 			want: pollWant{
 				devices:  nil, // the second poll: unchanged
 				readings: values{"tuya:bf22": {model.Temperature: model.NumberValue(21)}},
-				requests: 4, // 1 listing, 2 status batches, 1 specification
+				requests: 5, // 1 listing, 1 shadow, 2 status batches, 1 specification
 			},
 		},
 		{
 			name: "listing repeats when due",
 			setup: func(c *MockClient) {
 				c.EXPECT().Devices(gomock.Any()).Return([]tuyacloud.Device{office}, nil).Times(2) // polls 1 and 3
+				c.EXPECT().ShadowProperties(gomock.Any(), "bf22").Return(nil, nil).Times(2)
 				c.EXPECT().DevicesStatus(gomock.Any(), "bf22").Return(map[string]tuyacloud.Status{
 					"bf22": {dp("va_temperature", 210)},
 				}, nil).Times(3)
@@ -190,13 +203,14 @@ func TestSourcePoll(t *testing.T) {
 						model.Temperature: model.NumberValue(21),
 					},
 				},
-				requests: 6,
+				requests: 8,
 			},
 		},
 		{
 			name: "specification failure falls back to default scales, retries after the hold-off",
 			setup: func(c *MockClient) {
 				c.EXPECT().Devices(gomock.Any()).Return([]tuyacloud.Device{office}, nil).Times(1)
+				c.EXPECT().ShadowProperties(gomock.Any(), "bf22").Return(nil, nil).Times(1)
 				c.EXPECT().DevicesStatus(gomock.Any(), "bf22").Return(map[string]tuyacloud.Status{
 					"bf22": {dp("va_temperature", 210), dp("temp_alarm", "upperalarm")},
 				}, nil).Times(2)
@@ -215,13 +229,14 @@ func TestSourcePoll(t *testing.T) {
 						model.TemperatureAlarm: model.TextValue("upperalarm"),
 					},
 				},
-				requests: 5,
+				requests: 6,
 			},
 		},
 		{
 			name: "specification failure is not retried before the hold-off",
 			setup: func(c *MockClient) {
 				c.EXPECT().Devices(gomock.Any()).Return([]tuyacloud.Device{office}, nil).Times(1)
+				c.EXPECT().ShadowProperties(gomock.Any(), "bf22").Return(nil, nil).Times(1)
 				c.EXPECT().DevicesStatus(gomock.Any(), "bf22").Return(map[string]tuyacloud.Status{
 					"bf22": {dp("va_temperature", 210), dp("va_humidity", 48)},
 				}, nil).Times(2)
@@ -237,7 +252,7 @@ func TestSourcePoll(t *testing.T) {
 						model.Humidity:    model.NumberValue(48),
 					},
 				},
-				requests: 4, // listing, two status batches, one specification attempt
+				requests: 5, // listing, shadow, two status batches, one specification attempt
 			},
 		},
 		{
@@ -251,6 +266,7 @@ func TestSourcePoll(t *testing.T) {
 					Online:    true,
 				}
 				c.EXPECT().Devices(gomock.Any()).Return([]tuyacloud.Device{thermo}, nil)
+				c.EXPECT().ShadowProperties(gomock.Any(), "bfth").Return(nil, nil)
 				c.EXPECT().DevicesStatus(gomock.Any(), "bfth").Return(map[string]tuyacloud.Status{
 					"bfth": {
 						dp("temp_current", 190),
@@ -275,13 +291,14 @@ func TestSourcePoll(t *testing.T) {
 						model.Heating:           model.BoolValue(true),
 					},
 				},
-				requests: 3,
+				requests: 4,
 			},
 		},
 		{
 			name: "metering outlet: power draw scaled by the specification",
 			setup: func(c *MockClient) {
 				c.EXPECT().Devices(gomock.Any()).Return([]tuyacloud.Device{strip}, nil)
+				c.EXPECT().ShadowProperties(gomock.Any(), "bf21").Return(nil, nil)
 				c.EXPECT().DevicesStatus(gomock.Any(), "bf21").Return(map[string]tuyacloud.Status{
 					"bf21": {dp("switch_1", true), dp("cur_power", 285), dp("add_ele", 3)},
 				}, nil)
@@ -305,7 +322,7 @@ func TestSourcePoll(t *testing.T) {
 						model.PowerDraw: model.NumberValue(28.5),
 					},
 				},
-				requests: 3,
+				requests: 4,
 			},
 		},
 		{
@@ -314,6 +331,7 @@ func TestSourcePoll(t *testing.T) {
 				seen := office
 				seen.UpdateTime = time.Now().Add(-time.Hour).Unix()
 				c.EXPECT().Devices(gomock.Any()).Return([]tuyacloud.Device{seen}, nil)
+				c.EXPECT().ShadowProperties(gomock.Any(), "bf22").Return(nil, nil)
 				c.EXPECT().DevicesStatus(gomock.Any(), "bf22").Return(map[string]tuyacloud.Status{
 					"bf22": {dp("va_temperature", 210)},
 				}, nil)
@@ -329,7 +347,107 @@ func TestSourcePoll(t *testing.T) {
 						model.Temperature: model.NumberValue(21),
 					},
 				},
-				requests: 3,
+				requests: 4,
+			},
+		},
+		{
+			name: "a reading carries its point's time from the shadow",
+			setup: func(c *MockClient) {
+				seen := office
+				seen.UpdateTime = time.Now().Add(-3 * time.Hour).Unix()
+				c.EXPECT().Devices(gomock.Any()).Return([]tuyacloud.Device{seen}, nil)
+				c.EXPECT().ShadowProperties(gomock.Any(), "bf22").Return([]tuyacloud.Property{
+					prop("battery_percentage", time.Now().Add(-time.Hour)),
+				}, nil)
+				c.EXPECT().DevicesStatus(gomock.Any(), "bf22").Return(map[string]tuyacloud.Status{
+					"bf22": {dp("battery_percentage", 66), dp("va_humidity", 46)},
+				}, nil)
+				c.EXPECT().Specification(gomock.Any(), "bf22").Return(climateSpec, nil)
+			},
+			polls: 1,
+			age:   3 * time.Hour,
+			want: pollWant{
+				devices: []model.Device{{ID: "tuya:bf22", Name: "кабинет", Kind: model.KindClimateSensor}},
+				readings: values{
+					"tuya:bf22": {
+						model.Online:   model.BoolValue(true),
+						model.Battery:  model.NumberValue(66),
+						model.Humidity: model.NumberValue(46),
+					},
+				},
+				ages:     map[model.Metric]time.Duration{model.Battery: time.Hour},
+				requests: 4,
+			},
+		},
+		{
+			name: "va_temperature is stamped from temp_current",
+			setup: func(c *MockClient) {
+				c.EXPECT().Devices(gomock.Any()).Return([]tuyacloud.Device{office}, nil)
+				c.EXPECT().ShadowProperties(gomock.Any(), "bf22").Return([]tuyacloud.Property{
+					prop("temp_current", time.Now().Add(-time.Hour)),
+				}, nil)
+				c.EXPECT().DevicesStatus(gomock.Any(), "bf22").Return(map[string]tuyacloud.Status{
+					"bf22": {dp("va_temperature", 248)},
+				}, nil)
+				c.EXPECT().Specification(gomock.Any(), "bf22").Return(climateSpec, nil)
+			},
+			polls: 1,
+			want: pollWant{
+				devices: []model.Device{{ID: "tuya:bf22", Name: "кабинет", Kind: model.KindClimateSensor}},
+				readings: values{
+					"tuya:bf22": {
+						model.Online:      model.BoolValue(true),
+						model.Temperature: model.NumberValue(24.8),
+					},
+				},
+				ages:     map[model.Metric]time.Duration{model.Temperature: time.Hour},
+				requests: 4,
+			},
+		},
+		{
+			name: "shadow failure falls back to the update time with a warning",
+			setup: func(c *MockClient) {
+				seen := office
+				seen.UpdateTime = time.Now().Add(-time.Hour).Unix()
+				c.EXPECT().Devices(gomock.Any()).Return([]tuyacloud.Device{seen}, nil)
+				c.EXPECT().ShadowProperties(gomock.Any(), "bf22").Return(nil, boom)
+				c.EXPECT().DevicesStatus(gomock.Any(), "bf22").Return(map[string]tuyacloud.Status{
+					"bf22": {dp("va_temperature", 210)},
+				}, nil)
+				c.EXPECT().Specification(gomock.Any(), "bf22").Return(climateSpec, nil)
+			},
+			polls: 1,
+			age:   time.Hour,
+			want: pollWant{
+				devices: []model.Device{{ID: "tuya:bf22", Name: "кабинет", Kind: model.KindClimateSensor}},
+				readings: values{
+					"tuya:bf22": {
+						model.Online:      model.BoolValue(true),
+						model.Temperature: model.NumberValue(21),
+					},
+				},
+				requests: 4,
+				warn:     "shadow unavailable, stamping with update_time",
+			},
+		},
+		{
+			name: "polls between listings reuse the shadow's stamps",
+			setup: func(c *MockClient) {
+				c.EXPECT().Devices(gomock.Any()).Return([]tuyacloud.Device{office}, nil).Times(1)
+				c.EXPECT().ShadowProperties(gomock.Any(), "bf22").Return([]tuyacloud.Property{
+					prop("temp_current", time.Now().Add(-time.Hour)),
+				}, nil).Times(1)
+				c.EXPECT().DevicesStatus(gomock.Any(), "bf22").Return(map[string]tuyacloud.Status{
+					"bf22": {dp("va_temperature", 210)},
+				}, nil).Times(2)
+				c.EXPECT().Specification(gomock.Any(), "bf22").Return(climateSpec, nil).Times(1)
+			},
+			polls: 2,
+			want: pollWant{
+				devices:  nil,
+				readings: values{"tuya:bf22": {model.Temperature: model.NumberValue(21)}},
+				ages:     map[model.Metric]time.Duration{model.Temperature: time.Hour},
+				requests: 5, // listing, shadow, two status batches, specification
 			},
 		},
 		{
@@ -338,6 +456,7 @@ func TestSourcePoll(t *testing.T) {
 				seen := office
 				seen.UpdateTime = time.Now().Add(time.Hour).Unix()
 				c.EXPECT().Devices(gomock.Any()).Return([]tuyacloud.Device{seen}, nil)
+				c.EXPECT().ShadowProperties(gomock.Any(), "bf22").Return(nil, nil)
 				c.EXPECT().DevicesStatus(gomock.Any(), "bf22").Return(map[string]tuyacloud.Status{"bf22": {}}, nil)
 				c.EXPECT().Specification(gomock.Any(), "bf22").Return(climateSpec, nil)
 			},
@@ -345,13 +464,14 @@ func TestSourcePoll(t *testing.T) {
 			want: pollWant{
 				devices:  []model.Device{{ID: "tuya:bf22", Name: "кабинет", Kind: model.KindClimateSensor}},
 				readings: values{"tuya:bf22": {model.Online: model.BoolValue(true)}},
-				requests: 3,
+				requests: 4,
 			},
 		},
 		{
 			name: "unknown code and wrong types dropped",
 			setup: func(c *MockClient) {
 				c.EXPECT().Devices(gomock.Any()).Return([]tuyacloud.Device{office}, nil)
+				c.EXPECT().ShadowProperties(gomock.Any(), "bf22").Return(nil, nil)
 				c.EXPECT().DevicesStatus(gomock.Any(), "bf22").Return(map[string]tuyacloud.Status{
 					"bf22": {dp("va_temperature", "warm"), dp("temp_alarm", 5), dp("switch", "on"), dp("mystery", 1)},
 				}, nil)
@@ -361,13 +481,14 @@ func TestSourcePoll(t *testing.T) {
 			want: pollWant{
 				devices:  []model.Device{{ID: "tuya:bf22", Name: "кабинет", Kind: model.KindClimateSensor}},
 				readings: values{"tuya:bf22": {model.Online: model.BoolValue(true)}},
-				requests: 3,
+				requests: 4,
 			},
 		},
 		{
 			name: "code missing from the specification is unscaled",
 			setup: func(c *MockClient) {
 				c.EXPECT().Devices(gomock.Any()).Return([]tuyacloud.Device{strip}, nil)
+				c.EXPECT().ShadowProperties(gomock.Any(), "bf21").Return(nil, nil)
 				c.EXPECT().DevicesStatus(gomock.Any(), "bf21").Return(map[string]tuyacloud.Status{
 					"bf21": {dp("temp_current", 25)},
 				}, nil)
@@ -390,7 +511,7 @@ func TestSourcePoll(t *testing.T) {
 						model.Temperature: model.NumberValue(25),
 					},
 				},
-				requests: 3,
+				requests: 4,
 			},
 		},
 		{
@@ -416,19 +537,21 @@ func TestSourcePoll(t *testing.T) {
 					c.EXPECT().Devices(gomock.Any()).Return(nil, boom),
 					c.EXPECT().Devices(gomock.Any()).Return([]tuyacloud.Device{office}, nil),
 				)
+				c.EXPECT().ShadowProperties(gomock.Any(), "bf22").Return(nil, nil)
 				c.EXPECT().DevicesStatus(gomock.Any(), "bf22").Return(map[string]tuyacloud.Status{}, nil)
 			},
 			polls: 2,
 			want: pollWant{
 				devices:  []model.Device{{ID: "tuya:bf22", Name: "кабинет", Kind: model.KindClimateSensor}},
 				readings: values{"tuya:bf22": {model.Online: model.BoolValue(true)}},
-				requests: 3,
+				requests: 4,
 			},
 		},
 		{
 			name: "status fails",
 			setup: func(c *MockClient) {
 				c.EXPECT().Devices(gomock.Any()).Return([]tuyacloud.Device{office}, nil)
+				c.EXPECT().ShadowProperties(gomock.Any(), "bf22").Return(nil, nil)
 				c.EXPECT().DevicesStatus(gomock.Any(), "bf22").Return(nil, boom)
 			},
 			polls:   1,
@@ -440,7 +563,8 @@ func TestSourcePoll(t *testing.T) {
 			// A bubble: the wall clock stands still, so reading stamps are exact.
 			synctest.Test(t, func(t *testing.T) {
 				start := time.Now()
-				s, client, m := newSource(t)
+				var logs bytes.Buffer
+				s, client, m := newSource(t, slog.New(slog.NewTextHandler(&logs, nil)))
 				requests := 0
 				m.EXPECT().IncRequest("tuya").Do(func(string) { requests++ }).AnyTimes()
 				tt.setup(client)
@@ -467,13 +591,12 @@ func TestSourcePoll(t *testing.T) {
 					t.Fatal(err)
 				}
 				assertDevices(t, batch.Devices, tt.want.devices)
-				// stamped by the last poll, minus the device's age
-				assertReadings(
-					t,
-					batch.Readings,
-					tt.want.readings,
-					start.Add(tt.between*time.Duration(tt.polls-1)).Add(-tt.age),
-				)
+				// stamped by the last poll, minus the device's or the point's age
+				last := start.Add(tt.between * time.Duration(tt.polls-1))
+				assertReadings(t, batch.Readings, tt.want.readings, last.Add(-tt.age), last, tt.want.ages)
+				if !strings.Contains(logs.String(), tt.want.warn) {
+					t.Errorf("log = %q, want containing %q", logs.String(), tt.want.warn)
+				}
 				if requests != tt.want.requests {
 					t.Errorf("requests counted = %d, want %d", requests, tt.want.requests)
 				}
@@ -494,7 +617,13 @@ func assertDevices(t *testing.T, got, want []model.Device) {
 	}
 }
 
-func assertReadings(t *testing.T, readings []model.Reading, want values, stamp time.Time) {
+func assertReadings(
+	t *testing.T,
+	readings []model.Reading,
+	want values,
+	stamp, last time.Time,
+	ages map[model.Metric]time.Duration,
+) {
 	t.Helper()
 	got := values{}
 	for _, r := range readings {
@@ -502,8 +631,12 @@ func assertReadings(t *testing.T, readings []model.Reading, want values, stamp t
 			got[r.Device] = map[model.Metric]model.Value{}
 		}
 		got[r.Device][r.Metric] = r.Value
-		if !r.At.Equal(stamp) {
-			t.Errorf("reading %s/%s stamped %v, want %v", r.Device, r.Metric, r.At, stamp)
+		at := stamp
+		if age, ok := ages[r.Metric]; ok {
+			at = last.Add(-age)
+		}
+		if !r.At.Equal(at) {
+			t.Errorf("reading %s/%s stamped %v, want %v", r.Device, r.Metric, r.At, at)
 		}
 	}
 	if len(got) != len(want) {

@@ -29,6 +29,7 @@ type Source struct {
 	warned  map[string]bool                    // products whose specification failed, warned once
 	retryAt map[string]time.Time               // products whose specification failed: no new attempt before
 	seen    map[string]bool                    // data point codes dropped, logged once
+	stamps  map[string]map[string]time.Time    // device ID → status code → point time, from the shadow
 }
 
 // Config is what the source needs; credentials are handled by the caller,
@@ -75,6 +76,9 @@ var points = map[string]point{
 	"switch_1":           {metric: model.Power, kind: model.Bool},
 }
 
+// shadowCodes maps status codes to shadow codes: the status API speaks the standard set, the shadow the product's own.
+var shadowCodes = map[string]string{"va_temperature": "temp_current", "va_humidity": "humidity_value"}
+
 // kinds maps Tuya product categories to device kinds.
 var kinds = map[string]model.Kind{
 	"wsdcg": model.KindClimateSensor,
@@ -103,6 +107,7 @@ func New(cfg Config, client Client, log *slog.Logger, m Metrics) (*Source, error
 		warned:  map[string]bool{},
 		retryAt: map[string]time.Time{},
 		seen:    map[string]bool{},
+		stamps:  map[string]map[string]time.Time{},
 	}, nil
 }
 
@@ -115,9 +120,9 @@ func (s *Source) Name() string {
 // poll, after a failure, and every ListEvery-th poll. Batch.Devices is nil
 // on the polls in between: unchanged. Offline devices are read too: the
 // cloud answers with their last known values, which the tile shows next to
-// the offline mark. Readings are stamped with the device's update time from
-// the listing, not with the poll time, so cached values carry their real
-// age.
+// the offline mark. Readings carry their point's time from the shadow,
+// refreshed on listing polls, or the device's update time when the shadow
+// is unavailable, so cached values carry their real age.
 func (s *Source) Poll(ctx context.Context) (source.Batch, error) {
 	now := time.Now()
 	var batch source.Batch
@@ -126,6 +131,7 @@ func (s *Source) Poll(ctx context.Context) (source.Batch, error) {
 		return source.Batch{}, err
 	}
 	if listed {
+		s.shadows(ctx, devices)
 		batch.Devices = make([]model.Device, 0, len(devices))
 		for _, d := range devices {
 			id := model.NewDeviceID(s.cfg.Name, d.ID)
@@ -160,8 +166,15 @@ func (s *Source) Poll(ctx context.Context) (source.Batch, error) {
 		}
 		spec, hasSpec := s.specification(ctx, d)
 		id := model.NewDeviceID(s.cfg.Name, d.ID)
-		at := stamp(d, now)
+		fallback := stamp(d, now)
+		s.mu.Lock()
+		times := s.stamps[d.ID]
+		s.mu.Unlock()
 		for _, dp := range status {
+			at, ok := times[dp.Code]
+			if !ok {
+				at = fallback
+			}
 			r, ok := s.convert(id, dp, spec, hasSpec, at)
 			if ok {
 				batch.Readings = append(batch.Readings, r)
@@ -193,6 +206,36 @@ func (s *Source) listing(ctx context.Context) (devices []tuyacloud.Device, liste
 	s.devices = devices
 	s.mu.Unlock()
 	return devices, true, nil
+}
+
+// shadows replaces the point times with those of the listed devices'
+// shadows; a device whose shadow fails has none and is stamped with its
+// update time until the next listing.
+func (s *Source) shadows(ctx context.Context, devices []tuyacloud.Device) {
+	stamps := make(map[string]map[string]time.Time, len(devices))
+	for _, d := range devices {
+		s.metrics.IncRequest(s.cfg.Name)
+		props, err := s.client.ShadowProperties(ctx, d.ID)
+		if err != nil {
+			s.log.Warn("shadow unavailable, stamping with update_time", "device", d.ID, "err", err)
+			continue
+		}
+		times := make(map[string]time.Time, len(props))
+		for i := range props {
+			if at := props[i].At(); !at.IsZero() {
+				times[props[i].Code] = at
+			}
+		}
+		for status, shadow := range shadowCodes {
+			if at, ok := times[shadow]; ok {
+				times[status] = at
+			}
+		}
+		stamps[d.ID] = times
+	}
+	s.mu.Lock()
+	s.stamps = stamps
+	s.mu.Unlock()
 }
 
 // polled counts a successful pass.

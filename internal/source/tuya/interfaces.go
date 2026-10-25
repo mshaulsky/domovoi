@@ -13,6 +13,7 @@ type Client interface {
 	Devices(ctx context.Context) ([]tuyacloud.Device, error)
 	DevicesStatus(ctx context.Context, deviceIDs ...string) (map[string]tuyacloud.Status, error)
 	Specification(ctx context.Context, deviceID string) (tuyacloud.Specification, error)
+	ShadowProperties(ctx context.Context, deviceID string) ([]tuyacloud.Property, error)
 }
 
 // Metrics counts upstream requests, for quota tracking.

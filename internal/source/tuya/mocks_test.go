@@ -76,6 +76,21 @@ func (mr *MockClientMockRecorder) DevicesStatus(ctx any, deviceIDs ...any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DevicesStatus", reflect.TypeOf((*MockClient)(nil).DevicesStatus), varargs...)
 }
 
+// ShadowProperties mocks base method.
+func (m *MockClient) ShadowProperties(ctx context.Context, deviceID string) ([]tuyacloud.Property, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ShadowProperties", ctx, deviceID)
+	ret0, _ := ret[0].([]tuyacloud.Property)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ShadowProperties indicates an expected call of ShadowProperties.
+func (mr *MockClientMockRecorder) ShadowProperties(ctx, deviceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ShadowProperties", reflect.TypeOf((*MockClient)(nil).ShadowProperties), ctx, deviceID)
+}
+
 // Specification mocks base method.
 func (m *MockClient) Specification(ctx context.Context, deviceID string) (tuyacloud.Specification, error) {
 	m.ctrl.T.Helper()

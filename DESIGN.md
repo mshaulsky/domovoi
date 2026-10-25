@@ -430,27 +430,29 @@ sources:
 **tuya** — every poll reads `DevicesStatus` in batches of 20 (the client
 batches); every `ListEvery`-th poll (default 5) also runs the device
 listing (names, `Online`, `update_time`; rooms are absent) and fills
-`Batch.Devices`. One request per minute plus one every five minutes,
-instead of two per minute. Readings are stamped with the device's
-`update_time` from the listing (clamped to the poll time), not with the
-poll time, so the cloud's cached values of a silent sensor carry their real
-age. Tuya's `update_time` moves on network events (online, offline, a
-battery swap), not on every report, so the State re-stamps a *changed*
-value with the batch time unless the vendor stamp is newer than the last
-moment the previous value was observed: a device's newest reading time is
-then its last sign of life — last change or last network event — and two
-different values never share a moment in history. After a restart with an
-empty database there is no previous value to compare against, so a quiet
-device's first frame may say "no data since" its last network event until
-its value moves. A device without a sign of life for `state.DeviceStaleAfter`
-(3 h) is stale even on a healthy source, and its tile says "no data since
-…" where a live tile shows its extremes. The cloud's `online` flag is not
-trusted alone — it stayed true for a sensor a day silent. Per-point
-timestamps exist in Tuya's `shadow/properties` endpoint (one request per
-device); if false "no data" notes ever appear on quiet rooms, fetching it
-on listing polls is the next step. Offline devices
-are read too, so a tile keeps its last known values next to the offline
-mark. Mapping by
+`Batch.Devices`. One request per minute, plus the listing and a shadow
+request per device every five minutes. Readings are not stamped with the
+poll time, so the cloud's cached values of a silent sensor carry their
+real age. The
+device's `update_time` from the listing is not enough: Tuya moves it on
+network events (online, offline, a battery swap), not on every report, so a
+quiet device that keeps reporting the same value would look dead. On listing
+polls the adapter fetches each device's `shadow/properties` (one request per
+device, ten per five minutes in the author's home) and stamps every reading
+with its point's own report time, reusing the stamps on the polls in
+between. The shadow speaks the product's own codes where the status API
+speaks the standard instruction set (`va_temperature`↔`temp_current`,
+`va_humidity`↔`humidity_value`). When the shadow is unavailable the reading
+falls back to `update_time` (clamped to the poll time) with a warning. The
+State re-stamps a *changed* value with the batch time unless the vendor
+stamp is newer than the last moment the previous value was observed: a
+device's newest reading time is then its last sign of life, and two
+different values never share a moment in history. A device without a sign
+of life for `state.DeviceStaleAfter` (3 h) is stale even on a healthy
+source, and its tile says "no data since …" where a live tile shows its
+extremes. The cloud's `online` flag is not trusted alone — it stayed true
+for a sensor a day silent. Offline devices are read too, so a tile keeps its
+last known values next to the offline mark. Mapping by
 data-point code, scale from the product `Specification`
 fetched once per product and cached (a failed fetch is held off for ten
 minutes and warned once; numbers use the points table's default scales

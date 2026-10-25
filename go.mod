@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/coreos/go-systemd/v22 v22.7.0
 	github.com/mshaulsky/aqaramcp v0.2.2
-	github.com/mshaulsky/tuyacloud v0.1.0
+	github.com/mshaulsky/tuyacloud v0.2.0
 	github.com/mshaulsky/waveshare-epd7in5b-v2 v0.2.0
 	github.com/nicksnyder/go-i18n/v2 v2.6.1
 	github.com/pressly/goose/v3 v3.27.0
