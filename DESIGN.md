@@ -756,9 +756,10 @@ The file also carries `timezone` (IANA name, default the system zone): the
 `*time.Location` is passed explicitly to whatever computes "local midnight"
 or quiet hours, never read from the environment inside domain code.
 
-`labels` maps a device ID to a short name for the hallway strip
-(`aqara:doorlock-3b7f29e4: замок`); a device without one shows its cloud
-name. It is the interim way to give a device a short name: the back office
+`labels` maps a device ID to a short name shown wherever the device appears,
+the tile title and the hallway strip (`aqara:doorlock-3b7f29e4: замок`); a
+device without one shows its cloud name. It is the interim way to give a
+device a short name: the back office
 (stage 6, the settings layer) will let the user rename devices from the web
 page, with the YAML map as the seed.
 

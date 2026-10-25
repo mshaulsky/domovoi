@@ -168,6 +168,7 @@ func fixture(t *testing.T, lang string) View {
 			"aqara:leak1":   name("стиралка", "washer"),
 			"aqara:leak2":   name("ванная", "bathroom"),
 			"tuya:aquarium": name("аквариум", "aquarium"),
+			"tuya:hall":     name("гостиная", "lounge"),
 		},
 		Devices:  devices,
 		Readings: map[model.DeviceID]map[model.Metric]model.Reading{},

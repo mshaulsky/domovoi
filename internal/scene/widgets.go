@@ -187,7 +187,7 @@ func (t ClimateTile) Draw(c *Canvas, r image.Rectangle, v View) {
 	id := t.Device.ID
 
 	top, rest := TakeTop(inner, s.px(26))
-	drawTitle(c, top, s, v.Icon(t.Device), v.DeviceName(t.Device), statusIcons(v, id))
+	drawTitle(c, top, s, v.Icon(t.Device), v.Label(t.Device), statusIcons(v, id))
 
 	big, rest := TakeTop(rest, s.px(50))
 	if temp, ok := v.Number(id, model.Temperature); ok {
