@@ -33,6 +33,7 @@ type Core struct {
 	wg           sync.WaitGroup
 	started      bool
 	lastWritten  map[seriesKey]time.Time // when each series last got a row, for the heartbeat
+	recent       map[eventKey]time.Time  // when each device event was last kept, for the dedupe
 	clockWarned  bool
 }
 
@@ -51,6 +52,12 @@ type seriesKey struct {
 	metric model.Metric
 }
 
+// eventKey identifies one kind of event on one device.
+type eventKey struct {
+	device model.DeviceID
+	kind   model.EventKind
+}
+
 // Persistence defaults.
 const (
 	DefaultHeartbeat = time.Hour
@@ -60,6 +67,9 @@ const (
 	persistTimeout = 10 * time.Second
 	// pruneEvery is how often old rows are deleted.
 	pruneEvery = 24 * time.Hour
+	// eventDedupe drops a repeat of the same device event this close to the kept one: the
+	// polled lock state and the automation history may both report one unlock.
+	eventDedupe = 2 * time.Minute
 )
 
 // ErrNotImplemented marks commands whose feature is a later stage.
@@ -84,6 +94,7 @@ func New(st *state.State, cfg Config, log *slog.Logger, m Metrics) *Core {
 		pending:      map[string]bool{},
 		awaiting:     map[string]bool{},
 		lastWritten:  map[seriesKey]time.Time{},
+		recent:       map[eventKey]time.Time{},
 	}
 }
 
@@ -112,14 +123,15 @@ func (c *Core) AddCoordinator(co Coordinator) {
 }
 
 // Batch applies a source's pass atomically: devices and readings into the
-// state and the source marked healthy, then the changes into events.
+// state and the source marked healthy, then the changes and the events the
+// source observed into events, repeats dropped.
 func (c *Core) Batch(name string, b source.Batch) {
 	now := time.Now()
 	changes, retired := c.state.Apply(name, b.Devices, b.Readings, now)
 	if len(retired) > 0 {
 		c.log.Info("devices retired: absent from the source's listing", "source", name, "devices", retired)
 	}
-	events := state.Classify(changes)
+	events := c.dedupe(append(state.Classify(changes), b.Events...))
 	for _, e := range events {
 		c.journal(e)
 	}
@@ -138,10 +150,15 @@ func (c *Core) Batch(name string, b source.Batch) {
 	c.settle(name, true)
 }
 
-// Event records an event a watcher produced (a button press).
+// Event records an event a watcher produced (a button press), unless it
+// repeats one just kept.
 func (c *Core) Event(e model.Event) {
+	events := c.dedupe([]model.Event{e})
+	if len(events) == 0 {
+		return
+	}
 	c.journal(e)
-	c.persist(nil, nil, nil, []model.Event{e}, time.Now())
+	c.persist(nil, nil, nil, events, time.Now())
 }
 
 // Health records a source's failure or recovery. A failing source still
@@ -299,6 +316,28 @@ func (c *Core) Reload() error {
 func (c *Core) journal(e model.Event) {
 	c.metrics.IncEvent(string(e.Kind))
 	c.log.Info("event", "kind", e.Kind, "device", e.Device, "detail", e.Detail, "at", e.At)
+}
+
+// dedupe drops a device event within eventDedupe of the last kept one of its device and kind, on
+// either side: the two reports of one event may arrive in either order. Events of no device pass.
+func (c *Core) dedupe(events []model.Event) []model.Event {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var kept []model.Event
+	for _, e := range events {
+		if e.Device == "" {
+			kept = append(kept, e)
+			continue
+		}
+		key := eventKey{device: e.Device, kind: e.Kind}
+		if last, ok := c.recent[key]; ok && e.At.Sub(last).Abs() < eventDedupe {
+			c.log.Debug("event deduplicated", "kind", e.Kind, "device", e.Device, "at", e.At, "kept_at", last)
+			continue
+		}
+		c.recent[key] = e.At
+		kept = append(kept, e)
+	}
+	return kept
 }
 
 // settle notes a source's answer and wakes the displays when the picture

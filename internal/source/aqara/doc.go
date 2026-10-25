@@ -5,5 +5,6 @@
 // carries the device list. The status is a flat key/value text: keys that
 // map to no metric are dropped. The service carries no timestamps, so
 // readings are stamped with the poll's wall clock; under testing/synctest
-// it is virtual.
+// it is virtual. With automations configured, each poll also reads the
+// last half hour of the automation history and turns new runs into events.
 package aqara

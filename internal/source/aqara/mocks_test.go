@@ -12,6 +12,7 @@ package aqara
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	aqaramcp "github.com/mshaulsky/aqaramcp"
 	gomock "go.uber.org/mock/gomock"
@@ -39,6 +40,36 @@ func NewMockClient(ctrl *gomock.Controller) *MockClient {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockClient) EXPECT() *MockClientMockRecorder {
 	return m.recorder
+}
+
+// AutomationRuns mocks base method.
+func (m *MockClient) AutomationRuns(ctx context.Context, from, to time.Time, filter aqaramcp.AutomationFilter) ([]aqaramcp.AutomationRun, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AutomationRuns", ctx, from, to, filter)
+	ret0, _ := ret[0].([]aqaramcp.AutomationRun)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AutomationRuns indicates an expected call of AutomationRuns.
+func (mr *MockClientMockRecorder) AutomationRuns(ctx, from, to, filter any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AutomationRuns", reflect.TypeOf((*MockClient)(nil).AutomationRuns), ctx, from, to, filter)
+}
+
+// Homes mocks base method.
+func (m *MockClient) Homes(ctx context.Context) ([]aqaramcp.Home, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Homes", ctx)
+	ret0, _ := ret[0].([]aqaramcp.Home)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Homes indicates an expected call of Homes.
+func (mr *MockClientMockRecorder) Homes(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Homes", reflect.TypeOf((*MockClient)(nil).Homes), ctx)
 }
 
 // Statuses mocks base method.

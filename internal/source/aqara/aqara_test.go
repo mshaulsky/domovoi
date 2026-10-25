@@ -1,9 +1,12 @@
 package aqara
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -425,6 +428,158 @@ func TestSourcePoll(t *testing.T) {
 	}
 }
 
+func TestSourceEvents(t *testing.T) {
+	boom := errors.New("boom")
+	almaty := time.FixedZone("Almaty", 5*60*60)
+	const (
+		unlocking  = "КОГДА Разблокировать ТОГДА Push-уведомление"
+		buttonLock = "КОГДА Однократное нажатие ТОГДА Умный дверной замок U200 Заблокировать"
+	)
+	// start is where every synctest bubble's clock begins, in the home's zone.
+	start := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC).In(almaty)
+	// run is a run of an automation that many minutes before the bubble's start.
+	run := func(automation string, minutesAgo int, failed bool) aqaramcp.AutomationRun {
+		at := start.Add(-time.Duration(minutesAgo) * time.Minute)
+		return aqaramcp.AutomationRun{Automation: automation, PositionName: "Мой Дом", At: at, Failed: failed}
+	}
+	unlocked := func(minutesAgo int) model.Event {
+		return model.Event{Device: byPrint(lock), Kind: model.EventUnlocked, At: run(unlocking, minutesAgo, false).At}
+	}
+	tests := []struct {
+		name     string
+		setup    func(c *MockClient) // the client's answers beyond the statuses
+		polls    int
+		want     []model.Event // of every poll, in order
+		requests int
+	}{
+		{
+			name: "the first read only records what already ran",
+			setup: func(c *MockClient) {
+				c.EXPECT().Homes(gomock.Any()).Return(home, nil)
+				history(c, []aqaramcp.AutomationRun{run(unlocking, 5, false)}, nil)
+			},
+			polls:    1,
+			requests: 3,
+		},
+		{
+			name: "a new matching run on a later poll is the device's event, to the minute",
+			setup: func(c *MockClient) {
+				c.EXPECT().Homes(gomock.Any()).Return(home, nil)
+				gomock.InOrder(
+					history(c, nil, nil),
+					history(c, []aqaramcp.AutomationRun{run(unlocking, 1, false)}, nil),
+				)
+			},
+			polls:    2,
+			want:     []model.Event{unlocked(1)},
+			requests: 5,
+		},
+		{
+			name: "a run already seen is not emitted again",
+			setup: func(c *MockClient) {
+				c.EXPECT().Homes(gomock.Any()).Return(home, nil)
+				gomock.InOrder(
+					history(c, []aqaramcp.AutomationRun{run(unlocking, 5, false)}, nil),
+					history(c, []aqaramcp.AutomationRun{run(unlocking, 5, false), run(unlocking, 1, false)}, nil),
+					history(c, []aqaramcp.AutomationRun{run(unlocking, 5, false), run(unlocking, 1, false)}, nil),
+				)
+			},
+			polls:    3,
+			want:     []model.Event{unlocked(1)},
+			requests: 7,
+		},
+		{
+			name: "a run of an unmatched automation is ignored",
+			setup: func(c *MockClient) {
+				c.EXPECT().Homes(gomock.Any()).Return(home, nil)
+				gomock.InOrder(
+					history(c, nil, nil),
+					history(c, []aqaramcp.AutomationRun{run(buttonLock, 1, false)}, nil),
+				)
+			},
+			polls:    2,
+			requests: 5,
+		},
+		{
+			name: "a failed run is ignored",
+			setup: func(c *MockClient) {
+				c.EXPECT().Homes(gomock.Any()).Return(home, nil)
+				gomock.InOrder(
+					history(c, nil, nil),
+					history(c, []aqaramcp.AutomationRun{run(unlocking, 1, true)}, nil),
+				)
+			},
+			polls:    2,
+			requests: 5,
+		},
+		{
+			name: "a history error clears the home, which the next poll looks up again",
+			setup: func(c *MockClient) {
+				c.EXPECT().Homes(gomock.Any()).Return(home, nil).Times(2)
+				gomock.InOrder(
+					history(c, nil, boom),
+					history(c, nil, nil),
+					history(c, []aqaramcp.AutomationRun{run(unlocking, 1, false)}, nil),
+				)
+			},
+			polls:    3,
+			want:     []model.Event{unlocked(1)},
+			requests: 8,
+		},
+		{
+			name: "no home skips the history",
+			setup: func(c *MockClient) {
+				c.EXPECT().Homes(gomock.Any()).Return(nil, boom)
+			},
+			polls:    1,
+			requests: 2,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctrl := gomock.NewController(t)
+				client, m := NewMockClient(ctrl), NewMockMetrics(ctrl)
+				cfg := Config{
+					Name: "aqara",
+					Automations: []Automation{
+						{Match: "КОГДА Разблокировать", Device: byPrint(lock), Event: model.EventUnlocked},
+						{Match: "КОГДА Заблокировать", Device: byPrint(lock), Event: model.EventLocked},
+					},
+					Location: almaty,
+				}
+				s, err := New(cfg, client, quiet, m)
+				if err != nil {
+					t.Fatal(err)
+				}
+				requests := 0
+				m.EXPECT().IncRequest("aqara").Do(func(string) { requests++ }).AnyTimes()
+				client.EXPECT().Statuses(gomock.Any(), gomock.Any()).
+					Return([]aqaramcp.DeviceStatus{status(lock, "lock_state", "1")}, nil).AnyTimes()
+				tt.setup(client)
+				var got []model.Event
+				for range tt.polls {
+					batch, err := s.Poll(t.Context())
+					if err != nil {
+						t.Fatal(err)
+					}
+					if len(batch.Devices) != 1 || len(batch.Readings) != 1 {
+						t.Errorf("batch lost the statuses: %+v", batch)
+					}
+					got = append(got, batch.Events...)
+					time.Sleep(90 * time.Second)
+				}
+				if !slices.Equal(got, tt.want) {
+					t.Errorf("events = %+v, want %+v", got, tt.want)
+				}
+				if requests != tt.requests {
+					t.Errorf("requests counted = %d, want %d", requests, tt.requests)
+				}
+			})
+		})
+	}
+}
+
 func assertDevices(t *testing.T, got, want []model.Device) {
 	t.Helper()
 	if len(got) != len(want) || (got == nil) != (want == nil) {
@@ -463,4 +618,22 @@ func assertReadings(t *testing.T, readings []model.Reading, want values, stamp t
 			}
 		}
 	}
+}
+
+// home is the account's only home, as all_homes_inquiry lists it.
+var home = []aqaramcp.Home{{ID: "Aqr~home", Name: "Мой Дом"}}
+
+// history expects one history read of the home over the last historyWindow, in the home's zone.
+func history(c *MockClient, runs []aqaramcp.AutomationRun, err error) *gomock.Call {
+	filter := aqaramcp.AutomationFilter{PositionIDs: []string{"Aqr~home"}}
+	return c.EXPECT().AutomationRuns(gomock.Any(), gomock.Any(), gomock.Any(), filter).DoAndReturn(
+		func(_ context.Context, from, to time.Time, _ aqaramcp.AutomationFilter) ([]aqaramcp.AutomationRun, error) {
+			if from.Location() != to.Location() || from.Location().String() != "Almaty" {
+				return nil, fmt.Errorf("range %v..%v is not in the home's zone", from, to)
+			}
+			if !to.Equal(time.Now()) || to.Sub(from) != historyWindow {
+				return nil, fmt.Errorf("range %v..%v is not the last %v", from, to, historyWindow)
+			}
+			return runs, err
+		})
 }

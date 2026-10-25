@@ -110,6 +110,69 @@ func TestCoreEvent(t *testing.T) {
 	d.core.Event(model.Event{Device: "mqtt:button", Kind: model.EventButtonPressed, Detail: "double", At: time.Now()})
 }
 
+func TestCoreEventDedupe(t *testing.T) {
+	tests := []struct {
+		name    string
+		kind    model.EventKind // of the event the source reports after the polled unlock
+		gap     time.Duration   // its time relative to the polled unlock's
+		watcher bool            // delivered through Event instead of Batch
+		want    int             // events journaled, the polled unlock included
+	}{
+		{
+			name: "the same device and kind within two minutes is dropped",
+			kind: model.EventUnlocked,
+			gap:  -time.Minute,
+			want: 1,
+		},
+		{
+			name:    "a watcher's repeat is dropped too",
+			kind:    model.EventUnlocked,
+			gap:     time.Minute,
+			watcher: true,
+			want:    1,
+		},
+		{
+			name: "after two minutes it passes",
+			kind: model.EventUnlocked,
+			gap:  2 * time.Minute,
+			want: 2,
+		},
+		{
+			name: "a different kind passes",
+			kind: model.EventLocked,
+			want: 2,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				start := time.Now()
+				d := newCore(t)
+				journaled := 0
+				d.metrics.EXPECT().IncEvent(gomock.Any()).Do(func(string) { journaled++ }).AnyTimes()
+				lock := model.Device{ID: "aqara:lock", Name: "Lock", Kind: model.KindLock}
+				locked := func(v bool) []model.Reading {
+					r := model.Reading{Device: lock.ID, Metric: model.Locked, Value: model.BoolValue(v), At: time.Now()}
+					return []model.Reading{r}
+				}
+
+				d.core.Batch("aqara", source.Batch{Devices: []model.Device{lock}, Readings: locked(true)})
+				time.Sleep(time.Minute)
+				d.core.Batch("aqara", source.Batch{Readings: locked(false)}) // the polled unlock
+				e := model.Event{Device: lock.ID, Kind: tt.kind, At: start.Add(time.Minute + tt.gap)}
+				if tt.watcher {
+					d.core.Event(e)
+				} else {
+					d.core.Batch("aqara", source.Batch{Events: []model.Event{e}})
+				}
+				if journaled != tt.want {
+					t.Errorf("events journaled = %d, want %d", journaled, tt.want)
+				}
+			})
+		})
+	}
+}
+
 func TestCoreHealth(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		start := time.Now()

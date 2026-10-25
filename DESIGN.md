@@ -334,6 +334,7 @@ type Source interface {
 type Batch struct {
     Devices  []model.Device // nil = unchanged since the previous batch
     Readings []model.Reading
+    Events   []model.Event  // observed by the source itself, beside those derived from changes
 }
 
 // Watcher is a push provider (MQTT). It delivers into the same Sink the
@@ -479,11 +480,26 @@ names, types and rooms, so it fills `Batch.Devices` every time; kind from
 `Device.Type`; `lock_state "1"→Locked true`, `water_leak→Leak`,
 `on_off→Power`, `online_offline→Online`; any `lock_state` other than `"1"`
 reads as unlocked, and every distinct value is logged once at Info so the
-unlocked value can be confirmed from the journal. **Known gaps, stated openly:** no
-power metering, no clicks and **no battery level** for any Aqara device
-through MCP (low-battery alerts cover Tuya sensors only until the Zigbee
-stick); the `lock_state` value of an *unlocked* U200 has not been observed
-yet — verification item for stage 2 (unlock, poll, record). Implements
+unlocked value can be confirmed from the journal. **Events from the
+automation history.** Polling misses every transition shorter than the
+interval: an unlock followed by an auto-lock within seconds never shows in
+`lock_state`. The server has no event log, but the execution history of
+automations is one, at minute resolution: automations set up in the app to
+fire on every unlock and lock make each one a run. With `automations:` in
+the config the adapter asks for the last 30 minutes of the home's history
+every poll (one more MCP call; the home ID is looked up once and again after
+a failed read, since IDs rotate with the key; a failing read is warned once
+until it recovers) and maps runs to device events
+by a part of the automation's name, IDs being per key too. The first read
+only records what already ran, so a restart re-emits nothing; later runs
+become `Batch.Events` stamped with their minute. The core drops a repeat of
+the same device event within two minutes, because the polled lock state may
+report the same unlock. **Known gaps, stated openly:** no power metering
+and **no battery level** for any Aqara device through MCP (low-battery
+alerts cover Tuya sensors only until the Zigbee stick); clicks only through
+an automation on the button, like the lock's events; the `lock_state`
+value of an *unlocked* U200 has not been observed yet — verification item
+for stage 2 (unlock, poll, record). Implements
 `Controller` later through `device_status_control` for the automation hook.
 **The key renews itself.** The MCP key the login page hands out expires
 after days (no documented lifetime; observed under two weeks) and there is
@@ -548,9 +564,12 @@ from the last stored point of every series, so the first frame after a reboot
 is not empty.
 
 A **classifier** turns changes into events using the transition table of
-the metric catalogue in `model`. Events from watchers (button) pass through as they are. Events go
-to the store, to the alert engine, to the advisor context and to the back
-office timeline — the journal is what makes "what happened today" answerable.
+the metric catalogue in `model`. Events from watchers (button) and those a
+source observed itself (`Batch.Events`) pass through as they are, except that
+a repeat of the same device and kind within two minutes of the kept one is
+dropped (`eventDedupe`): two reports of one unlock. Events go to the store,
+to the alert engine, to the advisor context and to the back office
+timeline — the journal is what makes "what happened today" answerable.
 
 **A listing defines the set.** A source that fills `Batch.Devices` hands
 over its whole inventory (Tuya on its first poll and every fifth, Aqara and

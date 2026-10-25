@@ -63,6 +63,30 @@ func TestAqaraRegister(t *testing.T) {
 			wantErr: `region "mars" is not one of EU, RU, US, CN, KR, SG`,
 		},
 		{
+			name: "automations",
+			yaml: "sources:\n  - kind: aqara\n    api_key: ${KEY}\n    automations:\n" +
+				"      - {match: КОГДА Разблокировать, device: aqara:doorlock-3b7f29e4, event: unlocked}\n" +
+				"      - {match: КОГДА Заблокировать, device: aqara:doorlock-3b7f29e4, event: locked}\n" + base,
+		},
+		{
+			name: "an automation without a match",
+			yaml: "sources:\n  - kind: aqara\n    api_key: ${KEY}\n    automations:\n" +
+				"      - {match: \" \", device: aqara:doorlock-3b7f29e4, event: unlocked}\n" + base,
+			wantErr: "automations[0]: match is required",
+		},
+		{
+			name: "an automation of another source's device",
+			yaml: "sources:\n  - kind: aqara\n    api_key: ${KEY}\n    automations:\n" +
+				"      - {match: КОГДА Разблокировать, device: tuya:lock, event: unlocked}\n" + base,
+			wantErr: `automations[0]: device "tuya:lock": want aqara:<id>`,
+		},
+		{
+			name: "an automation of no device event",
+			yaml: "sources:\n  - kind: aqara\n    api_key: ${KEY}\n    automations:\n" +
+				"      - {match: КОГДА Разблокировать, device: aqara:doorlock-3b7f29e4, event: alert_raised}\n" + base,
+			wantErr: `automations[0]: event "alert_raised" is not a device event`,
+		},
+		{
 			name:    "unknown option",
 			yaml:    "sources:\n  - kind: aqara\n    apikey: ${KEY}\n" + base,
 			wantErr: "field apikey not found",

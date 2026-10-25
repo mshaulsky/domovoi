@@ -6,4 +6,5 @@ import "github.com/mshaulsky/domovoi/internal/model"
 type Batch struct {
 	Devices  []model.Device // nil = unchanged since the previous batch
 	Readings []model.Reading
+	Events   []model.Event // observed by the source itself, beside those the state derives from changes
 }

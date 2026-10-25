@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,21 +24,30 @@ type Source struct {
 	metrics Metrics
 
 	mu         sync.Mutex
-	seen       map[string]bool // status keys dropped, logged once
-	lockStates map[string]bool // lock_state values met, logged once
-	shared     map[string]bool // fingerprints shared by several devices, logged once
+	seen       map[string]bool      // status keys dropped, logged once
+	lockStates map[string]bool      // lock_state values met, logged once
+	shared     map[string]bool      // fingerprints shared by several devices, logged once
+	home       string               // the home whose history is read; cleared on a failed read
+	runs       map[string]time.Time // automation runs already seen, by name and minute
+	primed     bool                 // the history has been read once
+	down       bool                 // the last history read failed; warned once, until it recovers
 }
 
 // Config is what the source needs; the credential is handled by the caller,
 // which builds the client.
 type Config struct {
-	Name string // source name, prefix of its device IDs
+	Name        string         // source name, prefix of its device IDs
+	Automations []Automation   // automations whose runs are device events; none, no history is read
+	Location    *time.Location // the zone the server speaks its minutes in; nil means time.Local
 }
 
 // lockedState is the lock_state value observed on a locked U200. The
 // platform does not document the other values; any other value reads as
 // unlocked and is logged once so it can be verified.
 const lockedState = "1"
+
+// historyWindow is how far back each poll reads the automation history.
+const historyWindow = 30 * time.Minute
 
 // kinds maps the platform's device types to device kinds.
 var kinds = map[string]model.Kind{
@@ -47,6 +58,14 @@ var kinds = map[string]model.Kind{
 	aqaramcp.TypeHub:             model.KindHub,
 }
 
+// Automation turns the runs of an automation set up in the app into events
+// of a device: the history is the only event log the server offers.
+type Automation struct {
+	Match  string          // a part of the automation's name, which the app spells from trigger and action
+	Device model.DeviceID  // the device the event belongs to
+	Event  model.EventKind // what a run means
+}
+
 // New wires the source to a client.
 func New(cfg Config, client Client, log *slog.Logger, m Metrics) (*Source, error) {
 	if cfg.Name == "" {
@@ -54,6 +73,9 @@ func New(cfg Config, client Client, log *slog.Logger, m Metrics) (*Source, error
 	}
 	if client == nil {
 		return nil, errors.New("aqara: client is required")
+	}
+	if cfg.Location == nil {
+		cfg.Location = time.Local
 	}
 	return &Source{
 		cfg:        cfg,
@@ -63,6 +85,7 @@ func New(cfg Config, client Client, log *slog.Logger, m Metrics) (*Source, error
 		seen:       map[string]bool{},
 		lockStates: map[string]bool{},
 		shared:     map[string]bool{},
+		runs:       map[string]time.Time{},
 	}, nil
 }
 
@@ -74,7 +97,8 @@ func (s *Source) Name() string {
 // Poll reads every device's status in one call. The answer carries names,
 // types and rooms, so Batch.Devices is filled on every poll. Device IDs come
 // from the fingerprint, since endpoint IDs change with every sign-in;
-// devices that share a fingerprint keep their endpoint IDs instead.
+// devices that share a fingerprint keep their endpoint IDs instead. With
+// automations configured, their recent runs become Batch.Events.
 func (s *Source) Poll(ctx context.Context) (source.Batch, error) {
 	now := time.Now()
 	s.metrics.IncRequest(s.cfg.Name)
@@ -111,7 +135,87 @@ func (s *Source) Poll(ctx context.Context) (source.Batch, error) {
 			}
 		}
 	}
+	if len(s.cfg.Automations) > 0 {
+		batch.Events = s.events(ctx, now)
+	}
 	return batch, nil
+}
+
+// events reads the automation runs of the last historyWindow and turns the new ones into events.
+// The first read only records what already ran, so a restart does not emit it again.
+func (s *Source) events(ctx context.Context, now time.Time) []model.Event {
+	s.mu.Lock()
+	home := s.home
+	s.mu.Unlock()
+	if home == "" {
+		s.metrics.IncRequest(s.cfg.Name)
+		homes, err := s.client.Homes(ctx)
+		if err == nil && len(homes) == 0 {
+			err = errors.New("the account has no home")
+		}
+		if err != nil {
+			s.mu.Lock()
+			s.failed("homes unavailable", err)
+			s.mu.Unlock()
+			return nil
+		}
+		home = homes[0].ID
+	}
+	now = now.In(s.cfg.Location)
+	s.metrics.IncRequest(s.cfg.Name)
+	filter := aqaramcp.AutomationFilter{PositionIDs: []string{home}}
+	runs, err := s.client.AutomationRuns(ctx, now.Add(-historyWindow), now, filter)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err != nil {
+		// The home ID may have rotated with the key: look it up again next time.
+		s.home = ""
+		s.failed("automation history unavailable", err)
+		return nil
+	}
+	if s.down {
+		s.log.Info("automation history recovered")
+		s.down = false
+	}
+	s.home = home
+	var events []model.Event
+	for _, run := range runs {
+		a, ok := s.automation(run.Automation)
+		if run.Failed || !ok {
+			continue
+		}
+		key := run.Automation + "|" + run.At.Format("2006-01-02 15:04")
+		if _, seen := s.runs[key]; seen {
+			continue
+		}
+		s.runs[key] = run.At
+		if s.primed {
+			events = append(events, model.Event{Device: a.Device, Kind: a.Event, At: run.At})
+		}
+	}
+	s.primed = true
+	cutoff := now.Add(-historyWindow - time.Minute)
+	maps.DeleteFunc(s.runs, func(_ string, at time.Time) bool { return at.Before(cutoff) })
+	return events
+}
+
+// failed notes a failed history read, under s.mu: a warning on the first, silence until it recovers.
+func (s *Source) failed(msg string, err error) {
+	if !s.down {
+		s.log.Warn(msg, "err", err)
+	}
+	s.down = true
+}
+
+// automation returns the first configured automation whose match the name contains.
+func (s *Source) automation(name string) (Automation, bool) {
+	for _, a := range s.cfg.Automations {
+		if strings.Contains(name, a.Match) {
+			return a, true
+		}
+	}
+	return Automation{}, false
 }
 
 // convert maps one status key into a reading, or reports that it is dropped.
