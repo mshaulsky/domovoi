@@ -10,7 +10,7 @@
 #   sudo install -m 644 domovoi.yaml /etc/domovoi.yaml
 #   sudo env CREDENTIALS_DIRECTORY=/etc/credstore domovoi -config /etc/domovoi.yaml -check
 #   sudo install -m 644 -D journald-domovoi.conf /etc/systemd/journald.conf.d/domovoi.conf
-#   sudo systemctl restart systemd-journald                 # the journal capped at 64 MB
+#   sudo systemctl restart systemd-journald                 # the journal on the card, capped at 64 MB
 #   sudo systemctl enable systemd-time-wait-sync.service   # so time-sync.target means a synced clock
 #   sudo systemctl enable --now domovoi
 

@@ -463,7 +463,9 @@ strip; `add_ele` energy increments wait for storage). The strip wraps into
 rows of three; only when a cell would be narrower than its design width do
 the cells and the rows shrink together, down to 55 % of the design size.
 A thermostat keeps its climate tile — setpoint and heating state on the
-detail line — and stays out of the hallway strip.
+detail line — and stays out of the hallway strip. A battery of 0 % is
+shown as unknown (no icon): the sensor keeps the pre-swap value until it
+next reports the point.
 Device kind by category (`wsdcg`→ClimateSensor, `cz`/`pc`→Outlet,
 `wk`→Thermostat, else Other).
 
@@ -659,10 +661,11 @@ commits immediately, `synchronous=NORMAL` under WAL loses at most the last
 transaction on power loss and never corrupts the file. The real risks are
 power loss and silent card death, so: a nightly `VACUUM INTO` backup to the
 mini-PC (one consistent file, ten lines behind a back-office button), a
-journald size limit with logs at `Info`, no swap on the Pi.
+persistent journal capped at 64 MB (Raspberry Pi OS keeps it in RAM by
+default), logs at `Info`, no swap on the Pi.
 
 **Queries** the scenes need: latest N points of a series (sparkline),
-min/max since a moment (daily extremes in red), last row (last change),
+min/max since a moment (daily extremes), last row (last change),
 events since a moment. Monotonic counters (energy) get a daily-delta query
 when they appear.
 
@@ -1085,9 +1088,9 @@ What the first frame shows, top to bottom, on 800×480:
 3. **Climate grid**, one tile per device that has `temperature`: the room
    icon (by Kind, overridable in settings: bed, sofa, desk, stove) and room
    name, temperature large (one decimal) with a thermometer glyph, humidity
-   with a droplet, today's min/max in small type (the current value in
-   accent when it *is* today's extreme), a trend arrow from the last hour, a
-   battery glyph by level (accent below 20 %), dimmed when stale or offline.
+   with a droplet, today's min/max in small type, a trend arrow from the
+   last hour, a battery glyph by level (accent below 20 %), dimmed when
+   stale or offline.
    The grid is two columns up to four tiles, three up to six, four beyond.
    Tiles are designed for the 4×2 grid on 800×480 (170×133 inside the
    border), so there they are drawn at design size; a tile's contents scale

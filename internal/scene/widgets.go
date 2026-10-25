@@ -209,7 +209,8 @@ func (t ClimateTile) Draw(c *Canvas, r image.Rectangle, v View) {
 	for _, d := range details {
 		x = drawDetail(c, line, s, x, d)
 	}
-	if bat, ok := v.Number(id, model.Battery); ok {
+	// A Tuya sensor keeps reporting 0 % long after a battery swap: 0 means unknown, not empty.
+	if bat, ok := v.Number(id, model.Battery); ok && bat > 0 {
 		iconSize := s.px(24)
 		col := th.Ink
 		if bat < lowBattery {
@@ -226,7 +227,7 @@ func (t ClimateTile) Draw(c *Canvas, r image.Rectangle, v View) {
 		return
 	}
 	if ex, ok := v.Extremes[id][model.Temperature]; ok && ex.Min != ex.Max { // one point is no range yet
-		drawExtremes(c, rest, s, v, ex, v.Readings[id][model.Temperature].Value.Num)
+		drawExtremes(c, rest, s, v, ex)
 	}
 }
 
@@ -438,9 +439,9 @@ func drawBigValue(c *Canvas, r image.Rectangle, s scale, ic icon.Icon, value str
 	}
 }
 
-// drawExtremes draws today's minimum and maximum; the one the current value
-// equals is accented, because that is a record being set right now.
-func drawExtremes(c *Canvas, r image.Rectangle, s scale, v View, ex Extremes, current float64) {
+// drawExtremes draws today's minimum and maximum in ink; red is kept for
+// what needs attention.
+func drawExtremes(c *Canvas, r image.Rectangle, s scale, v View, ex Extremes) {
 	th := c.Theme()
 	face := c.Faces().Text(s.px(17))
 	iconSize := s.px(18)
@@ -449,13 +450,9 @@ func drawExtremes(c *Canvas, r image.Rectangle, s scale, v View, ex Extremes, cu
 		ic  icon.Icon
 		val float64
 	}{{icon.ArrowDown, ex.Min}, {icon.ArrowUp, ex.Max}} {
-		col := th.Ink
-		if current == e.val {
-			col = th.Accent
-		}
-		c.Icon(e.ic, iconSize, col, x, r.Min.Y+(r.Dy()-iconSize)/2)
+		c.Icon(e.ic, iconSize, th.Ink, x, r.Min.Y+(r.Dy()-iconSize)/2)
 		x += iconSize
-		x += c.Text(v.Format(e.val, 1)+"°", face, col, x, baseline(face, r)) + s.px(10)
+		x += c.Text(v.Format(e.val, 1)+"°", face, th.Ink, x, baseline(face, r)) + s.px(10)
 	}
 }
 

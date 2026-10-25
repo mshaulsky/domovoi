@@ -120,7 +120,7 @@ func fixture(t *testing.T, lang string) View {
 		"tuya:hall": {
 			model.Temperature: num(23.9),
 			model.Humidity:    num(44),
-			model.Battery:     num(64),
+			model.Battery:     num(0),
 			model.Online:      model.BoolValue(true),
 		},
 		"tuya:kitchen": {
